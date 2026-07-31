@@ -1,0 +1,61 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ORVIBO LAN",
+        "description": "Enter your ORVIBO account credentials.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "select_family": {
+        "title": "Select family",
+        "data": {
+          "family_id": "Family"
+        }
+      },
+      "devices": {
+        "title": "Select devices",
+        "data": {
+          "selected_device_ids": "Devices"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate ORVIBO",
+        "description": "Enter the current password for {username}.",
+        "data": {
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "auth_failed": "Authentication failed.",
+      "cannot_connect": "Unable to connect to ORVIBO.",
+      "empty_username_or_password": "Username and password are required.",
+      "no_devices": "No supported devices were found.",
+      "no_devices_selected": "Select at least one device."
+    },
+    "abort": {
+      "already_configured": "This account is already configured.",
+      "reauth_entry_missing": "The config entry no longer exists.",
+      "reauth_successful": "Reauthentication was successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Select devices",
+        "data": {
+          "selected_device_ids": "Devices"
+        }
+      }
+    },
+    "error": {
+      "auth_failed": "Authentication failed.",
+      "cannot_connect": "Unable to connect to ORVIBO.",
+      "no_devices": "No supported devices were found.",
+      "no_devices_selected": "Select at least one device."
+    }
+  }
+}

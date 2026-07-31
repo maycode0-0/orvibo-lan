@@ -1,0 +1,3 @@
+refresh_devices:
+  name: 刷新设备
+  description: 手动从云端刷新设备列表和状态

@@ -1,0 +1,59 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ORVIBO LAN",
+        "description": "Enter your Orvibo account (phone number)",
+        "data": {
+          "username": "Phone Number",
+          "password": "Password"
+        }
+      },
+      "select_family": {
+        "title": "Select Family",
+        "description": "Please select a family to control",
+        "data": {
+          "family_id": "Family"
+        }
+      },
+      "devices": {
+        "title": "Select Devices",
+        "description": "Select devices to add (LAN child devices are controllable; property devices may be read-only; all selected by default)",
+        "data": {
+          "selected_device_ids": "Select Devices"
+        }
+      }
+    },
+    "error": {
+      "auth_failed": "Login failed, check your credentials",
+      "empty_username_or_password": "Phone number and password cannot be empty",
+      "cannot_connect": "Cannot connect to ORVIBO server",
+      "no_devices": "No controllable devices in this family",
+      "no_devices_selected": "Please select at least one device"
+    },
+    "abort": {
+      "already_configured": "This account is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "devices": {
+        "title": "Select Devices",
+        "description": "Select LAN or property-based read-only devices to add",
+        "data": {
+          "selected_device_ids": "Select Devices"
+        }
+      },
+      "init": {
+        "title": "Select Devices",
+        "description": "Select LAN or property-based read-only devices to add",
+        "data": {
+          "selected_device_ids": "Select Devices"
+        }
+      }
+    },
+    "error": {
+      "no_devices_selected": "Please select at least one device"
+    }
+  }
+}

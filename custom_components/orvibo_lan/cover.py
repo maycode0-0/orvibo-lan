@@ -1,0 +1,139 @@
+"""Orvibo LAN Cover 平台（窗帘）。"""
+
+import logging
+from typing import Optional
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from .const import DOMAIN, MANUFACTURER
+from .coordinator import OrviboLanCoordinator
+from .device_profiles import supports_platform
+from .entity import OrviboLanEntity
+from .lib import device_control as dc
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    # 延迟导入，避免 HA 2026 import_module 阻塞检测
+    from homeassistant.components.cover import (
+        ATTR_POSITION,
+        CoverDeviceClass,
+        CoverEntity,
+    )
+
+    class OrviboLanCover(OrviboLanEntity, CoverEntity):
+        """Orvibo 窗帘实体。"""
+
+        _attr_has_entity_name = True
+
+        def __init__(self, coordinator, device_id, device, device_type=34):
+            super().__init__(coordinator)
+            self._device_id = device_id
+            self._device = device
+            self._device_type = device_type
+            name = device.get("deviceName", f"Cover {device_id[:8]}")
+            self._attr_unique_id = f"{DOMAIN}_cover_{device_id}"
+            self._attr_name = name
+            # type=35 卷帘使用 SHUTTER 图标
+            if device_type == 35:
+                self._attr_device_class = CoverDeviceClass.SHUTTER
+                self._attr_icon = "mdi:roller-shade"
+            else:
+                self._attr_device_class = CoverDeviceClass.CURTAIN
+
+            # 每个设备独立注册为 HA 设备，via_device 指向网关
+            uid = device.get("uid", "")
+            dev_info = {
+                "identifiers": {(DOMAIN, f"device_{device_id}")},
+                "name": device.get("deviceName", f"Cover {device_id[:8]}"),
+                "manufacturer": MANUFACTURER,
+                "model": "Orvibo Curtain",
+            }
+            if uid:
+                dev_info["via_device"] = (DOMAIN, f"gateway_{uid}")
+            self._attr_device_info = dev_info
+
+        def _parse_position(self, st: dict) -> Optional[int]:
+            """解析窗帘位置。cmd=42: value1=0关100开，跟 HA 一致，直接返回。"""
+            v1 = st.get("value1")
+            if v1 is not None:
+                pos = int(v1)
+                return max(0, min(pos, 100))
+            return None
+
+        @property
+        def is_closed(self) -> Optional[bool]:
+            st = self.coordinator.get_device_state(self._device_id)
+            if not st:
+                return None
+            pos = self._parse_position(st)
+            if pos is not None:
+                return pos <= 5
+            return None
+
+        @property
+        def current_cover_position(self) -> Optional[int]:
+            st = self.coordinator.get_device_state(self._device_id)
+            if not st:
+                return None
+            return self._parse_position(st)
+
+        async def async_open_cover(self, **kwargs):
+            payload = dc.cover_open(
+                self._device_id, self._device.get("uid", ""), self.coordinator.username
+            )
+            await self.coordinator.async_control_device(self._device_id, payload)
+
+        async def async_close_cover(self, **kwargs):
+            payload = dc.cover_close(
+                self._device_id, self._device.get("uid", ""), self.coordinator.username
+            )
+            await self.coordinator.async_control_device(self._device_id, payload)
+
+        async def async_stop_cover(self, **kwargs):
+            payload = dc.cover_stop(
+                self._device_id, self._device.get("uid", ""), self.coordinator.username
+            )
+            await self.coordinator.async_control_device(self._device_id, payload)
+
+        async def async_set_cover_position(self, **kwargs):
+            position = kwargs[ATTR_POSITION]
+            payload = dc.cover_position(
+                self._device_id, self._device.get("uid", ""), position, self.coordinator.username
+            )
+            await self.coordinator.async_control_device(self._device_id, payload)
+
+    from . import get_runtime_data
+
+    coordinator: OrviboLanCoordinator = get_runtime_data(hass, entry).coordinator
+    from .selection import selected_device_ids
+
+    selected_ids = selected_device_ids(entry.options, coordinator.devices)
+    entities = []
+
+    from .const import HIDDEN_TYPES
+
+    for did, device in coordinator.devices.items():
+        if did not in selected_ids:
+            continue
+        dt = coordinator.device_types.get(did, 0)
+        if not supports_platform(
+            device,
+            coordinator.get_device_state(did),
+            "cover",
+        ):
+            continue
+        if dt in HIDDEN_TYPES:
+            continue
+
+        entities.append(OrviboLanCover(coordinator, did, device, dt))
+
+    if entities:
+        async_add_entities(entities)

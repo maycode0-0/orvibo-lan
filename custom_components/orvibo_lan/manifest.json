@@ -1,0 +1,9 @@
+{
+  "domain": "orvibo_lan",
+  "name": "Orvibo LAN",
+  "config_flow": true,
+  "dependencies": [],
+  "iot_class": "cloud_polling",
+  "requirements": ["aiohttp", "cryptography"],
+  "version": "0.0.1"
+}
