@@ -1,7 +1,11 @@
 {
  "name": "Release",
  "on": {
- "push": { "tags": ["v*.*.*"] },
+ "push": {
+ "branches": ["main"],
+ "tags": ["v*.*.*"],
+ "paths": ["custom_components/orvibo_lan/manifest.json"]
+ },
  "workflow_dispatch": {}
  },
  "permissions": { "contents": "read" },
@@ -28,11 +32,19 @@
  "steps": [
  { "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262", "with": { "fetch-depth":0 } },
  {
+ "name": "Create release tag on main",
+ "if": "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+ "uses": "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
+ "with": {
+ "script": "const fs = require('fs');\nconst manifest = JSON.parse(fs.readFileSync('custom_components/orvibo_lan/manifest.json', 'utf8'));\nconst version = manifest.version;\nif (!/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/.test(version)) { core.setFailed(`Invalid manifest version: ${version}`); return; }\nconst tag = `v${version}`;\ntry {\n const existing = await github.rest.git.getRef({ ...context.repo, ref: `tags/${tag}` });\n if (existing.data.object.sha !== context.sha) { core.setFailed(`${tag} already points to ${existing.data.object.sha}, not ${context.sha}; bump manifest.version before releasing`); }\n} catch (error) {\n if (error.status !== 404) throw error;\n await github.rest.git.createRef({ ...context.repo, ref: `refs/tags/${tag}`, sha: context.sha });\n}"
+ }
+ },
+ {
  "name": "Resolve and validate manifest version",
  "id": "version",
  "uses": "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
  "with": {
- "script": "const fs = require('fs');\nconst manifest = JSON.parse(fs.readFileSync('custom_components/orvibo_lan/manifest.json', 'utf8'));\nconst version = manifest.version;\nif (!/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/.test(version)) { core.setFailed(`Invalid manifest version: ${version}`); return; }\nconst tag = `v${version}`;\nif (context.eventName === 'push' && context.ref !== `refs/tags/${tag}`) { core.setFailed(`Pushed tag ${context.ref} does not match manifest ${tag}`); return; }\nif (context.eventName === 'workflow_dispatch' && context.ref !== 'refs/heads/main') { core.setFailed('Manual release repair is only allowed from main'); return; }\ncore.setOutput('version', version);\ncore.setOutput('tag', tag);"
+ "script": "const fs = require('fs');\nconst manifest = JSON.parse(fs.readFileSync('custom_components/orvibo_lan/manifest.json', 'utf8'));\nconst version = manifest.version;\nif (!/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/.test(version)) { core.setFailed(`Invalid manifest version: ${version}`); return; }\nconst tag = `v${version}`;\nif (context.eventName === 'push' && context.ref.startsWith('refs/tags/') && context.ref !== `refs/tags/${tag}`) { core.setFailed(`Pushed tag ${context.ref} does not match manifest ${tag}`); return; }\nif (context.eventName === 'workflow_dispatch' && context.ref !== 'refs/heads/main') { core.setFailed('Manual release repair is only allowed from main'); return; }\ncore.setOutput('version', version);\ncore.setOutput('tag', tag);"
  }
  },
  {

@@ -11,18 +11,11 @@
 
 ## 创建发布
 
-在 `main` 的发布提交创建与 manifest 完全一致的标签：
-
-```bash
-git tag v0.0.1
-git push origin v0.0.1
-```
-
-发布工作流校验标签、manifest 版本和提交目标，构建固定名称 `orvibo_lan.zip`，然后创建或修复对应的 GitHub Release。工作流不会自动创建版本标签。
+更新 `manifest.json` 中的版本并合并到 `main` 后，发布工作流会自动创建与 manifest 完全一致的 `vX.Y.Z` 标签，并创建或修复对应的 GitHub Release。工作流构建固定名称 `orvibo_lan.zip` 并上传为唯一发布资产。
 
 ## 手动补发
 
-`workflow_dispatch` 只允许从 `main` 运行，用于修复已经存在的同版本标签或 Release。若 Release 缺失则创建；若固定资产已存在，则替换同名资产，避免产生多个漂移文件名。
+`workflow_dispatch` 只允许从 `main` 运行，用于修复已经存在的同版本标签或 Release。若 Release 缺失则创建；若固定资产已存在，则替换同名资产，避免产生多个漂移文件名。若同版本标签已经指向其他提交，自动发布会失败并要求先提升 manifest 版本，不会覆盖已有历史。
 
 ## 发布后检查
 

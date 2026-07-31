@@ -81,7 +81,14 @@ class ReleaseWorkflowTests(unittest.TestCase):
         jobs = workflow["jobs"]
         assert isinstance(triggers, dict)
         assert isinstance(jobs, dict)
-        self.assertEqual(triggers["push"], {"tags": ["v*.*.*"]})
+        self.assertEqual(
+            triggers["push"],
+            {
+                "branches": ["main"],
+                "tags": ["v*.*.*"],
+                "paths": ["custom_components/orvibo_lan/manifest.json"],
+            },
+        )
         self.assertEqual(triggers["workflow_dispatch"], {})
         self.assertEqual(set(jobs), {"verify", "release"})
         verify = jobs["verify"]
@@ -94,13 +101,21 @@ class ReleaseWorkflowTests(unittest.TestCase):
 
         steps = release["steps"]
         assert isinstance(steps, list)
+        tag_step = next(
+            step for step in steps if isinstance(step, dict) and step.get("name") == "Create release tag on main"
+        )
+        self.assertEqual(
+            tag_step["if"],
+            "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+        )
+        self.assertIn("git.createRef", str(tag_step["with"]["script"]))
         scripts = "\n".join(
             str(step.get("run", "")) + "\n" + str(step.get("with", {}).get("script", ""))
             for step in steps
             if isinstance(step, dict) and isinstance(step.get("with", {}), dict)
         )
         self.assertIn("custom_components/orvibo_lan/manifest.json", scripts)
-        self.assertIn("context.ref !== `refs/tags/${tag}`", scripts)
+        self.assertIn("context.ref.startsWith('refs/tags/')", scripts)
         self.assertIn("context.ref !== 'refs/heads/main'", scripts)
         self.assertIn("refs/tags/$RELEASE_TAG^{commit}", scripts)
         self.assertIn("name: 'orvibo_lan.zip'", scripts)
