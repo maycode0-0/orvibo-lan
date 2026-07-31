@@ -12,6 +12,7 @@ coverage.xml
 dist/
 build/
 *.egg
+uv.lock
 
 # IDE
 .vscode/
