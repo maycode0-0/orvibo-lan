@@ -123,6 +123,7 @@ class GatewayConnection:
         *,
         timeout: float = 5.0,
         expected_uid: str | None = None,
+        allow_missing_uid: bool = False,
     ) -> None:
         """Open, negotiate, and authenticate a fresh transport generation."""
 
@@ -131,7 +132,13 @@ class GatewayConnection:
         start_generation = self.generation
         try:
             await asyncio.wait_for(
-                self._connect_locked(username, password, expected_uid, timeout),
+                self._connect_locked(
+                    username,
+                    password,
+                    expected_uid,
+                    allow_missing_uid,
+                    timeout,
+                ),
                 timeout=timeout,
             )
         except asyncio.TimeoutError as error:
@@ -156,6 +163,7 @@ class GatewayConnection:
         username: str,
         password: str,
         expected_uid: str | None,
+        allow_missing_uid: bool,
         request_timeout: float,
     ) -> None:
         async with self._lifecycle_lock:
@@ -218,7 +226,11 @@ class GatewayConnection:
             self.identity_confirmed = bool(
                 expected_uid is not None and self.peer_uid == expected_uid
             )
-            if expected_uid is not None and not self.identity_confirmed:
+            if (
+                expected_uid is not None
+                and not self.identity_confirmed
+                and not (allow_missing_uid and self.peer_uid is None)
+            ):
                 raise GatewayConnectionError(
                     "gateway handshake did not confirm expected UID "
                     f"(expected={expected_uid!r}, peer={self.peer_uid!r})"

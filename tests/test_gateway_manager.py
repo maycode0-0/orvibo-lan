@@ -23,9 +23,18 @@ class FakeConnection:
         self.identity_confirmed = identity_confirmed
         self.fail_send = fail_send
         self.closed = 0
+        self.allow_missing_uid = False
 
-    async def connect(self, username: str, password: str, *, expected_uid: str) -> None:
+    async def connect(
+        self,
+        username: str,
+        password: str,
+        *,
+        expected_uid: str,
+        allow_missing_uid: bool = False,
+    ) -> None:
         del username, password, expected_uid
+        self.allow_missing_uid = allow_missing_uid
         self.connected = True
 
     async def send(self, payload: object, *, timeout: float | None = None) -> dict[str, Any]:
@@ -66,6 +75,7 @@ async def test_send_failure_is_not_retried() -> None:
         await manager.send("uid", {"serial": 1})
 
     assert len(created) == 1
+    assert created[0].allow_missing_uid
     await manager.close()
     await manager.close()
 
@@ -90,6 +100,7 @@ async def test_unconfirmed_candidate_keeps_cloud_host() -> None:
 
     assert manager.gateway_hosts["uid"] == "192.168.1.2"
     assert connections[-1].closed >= 1
+    assert not connections[-1].allow_missing_uid
 
 
 @pytest.mark.asyncio
@@ -113,6 +124,7 @@ async def test_confirmed_candidate_replaces_cloud_connection() -> None:
 
     assert manager.gateway_hosts["uid"] == "10.0.0.9"
     assert old.closed == 1
+    assert not connections[-1].allow_missing_uid
     await manager.close()
 
 

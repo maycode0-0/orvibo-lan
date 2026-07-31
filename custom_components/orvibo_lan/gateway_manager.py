@@ -219,7 +219,11 @@ class GatewayManager:
         if current is not None:
             await current.close()
 
-        connection = await self._connect(uid, record.active_host)
+        connection = await self._connect(
+            uid,
+            record.active_host,
+            allow_missing_uid=record.active_host == record.cloud_host,
+        )
         if self._closed:
             await connection.close()
             raise GatewayConnectionError("gateway manager is closed")
@@ -232,6 +236,7 @@ class GatewayManager:
         host: str,
         *,
         enable_pushes: bool = True,
+        allow_missing_uid: bool = False,
     ) -> GatewayConnection:
         self._raise_if_closed()
         connection = self._connection_factory(host)
@@ -244,6 +249,7 @@ class GatewayManager:
                 self.username,
                 self.password,
                 expected_uid=uid,
+                allow_missing_uid=allow_missing_uid,
             )
         except BaseException:
             with suppress(Exception):
