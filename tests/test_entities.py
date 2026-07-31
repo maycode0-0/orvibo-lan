@@ -121,6 +121,86 @@ def entity_context():
 
 
 @pytest.mark.asyncio
+async def test_read_only_entities_do_not_reference_a_missing_gateway() -> None:
+    coordinator = OrviboLanCoordinator(
+        SimpleNamespace(),
+        MagicMock(),
+        "user",
+        "password",
+    )
+    device = {
+        "deviceId": "w-lock",
+        "deviceType": 522,
+        "uid": "wifi-lock-uid",
+        "deviceName": "Door lock",
+        "_orvibo_lan_capable": False,
+        "_orvibo_read_only": True,
+    }
+
+    battery = sensor.OrviboLanBatterySensor(
+        coordinator,
+        "w-lock",
+        device,
+        "Door lock",
+    )
+    door = binary_sensor.OrviboLanPropertyDoorSensor(
+        coordinator,
+        "w-lock",
+        device,
+    )
+
+    assert "via_device" not in battery._attr_device_info
+    assert "via_device" not in door._attr_device_info
+
+    lan_device = {**device, "_orvibo_lan_capable": True}
+    lan_battery = sensor.OrviboLanBatterySensor(
+        coordinator,
+        "w-lock",
+        lan_device,
+        "Door lock",
+    )
+    lan_door = binary_sensor.OrviboLanPropertyDoorSensor(
+        coordinator,
+        "w-lock",
+        lan_device,
+    )
+    expected_gateway = (DOMAIN, "gateway_wifi-lock-uid")
+    assert lan_battery._attr_device_info["via_device"] == expected_gateway
+    assert lan_door._attr_device_info["via_device"] == expected_gateway
+
+    coordinator.devices = {
+        "wifi-light": {**device, "deviceId": "wifi-light", "deviceType": 503},
+        "wifi-cover": {**device, "deviceId": "wifi-cover", "deviceType": 34},
+        "wifi-fan": {**device, "deviceId": "wifi-fan", "deviceType": 516},
+        "wifi-climate": {**device, "deviceId": "wifi-climate", "deviceType": 36},
+    }
+    coordinator.device_types = {
+        device_id: int(item["deviceType"]) for device_id, item in coordinator.devices.items()
+    }
+    coordinator.device_states = {
+        device_id: {"properties": {"battery_power": {"percent": 80}}}
+        for device_id in coordinator.devices
+    }
+    runtime = OrviboLanRuntimeData(coordinator, MagicMock())
+    hass = SimpleNamespace(data={DOMAIN: {"entry": runtime}})
+    entry = SimpleNamespace(entry_id="entry", options={})
+
+    for platform in (light, cover, fan, climate):
+        entities: list[object] = []
+        await platform.async_setup_entry(hass, entry, entities.extend)
+        assert len(entities) == 1
+        assert "via_device" not in entities[0]._attr_device_info
+
+    for item in coordinator.devices.values():
+        item["_orvibo_lan_capable"] = True
+    for platform in (light, cover, fan, climate):
+        entities = []
+        await platform.async_setup_entry(hass, entry, entities.extend)
+        assert len(entities) == 1
+        assert entities[0]._attr_device_info["via_device"] == expected_gateway
+
+
+@pytest.mark.asyncio
 async def test_platform_entities_parse_state_and_send_commands() -> None:
     hass, entry, coordinator = entity_context()
     platform_entities: dict[str, list[object]] = {}

@@ -56,7 +56,7 @@ async def async_setup_entry(
                 "manufacturer": MANUFACTURER,
                 "model": "Orvibo Curtain",
             }
-            if uid:
+            if uid and device.get("_orvibo_lan_capable"):
                 dev_info["via_device"] = (DOMAIN, f"gateway_{uid}")
             self._attr_device_info = dev_info
 

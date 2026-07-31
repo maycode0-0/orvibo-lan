@@ -95,7 +95,7 @@ def _device_info(device_id: str, device: Device, model: str) -> dict[str, object
         "model": model,
     }
     uid = device.get("uid")
-    if isinstance(uid, str) and uid:
+    if isinstance(uid, str) and uid and device.get("_orvibo_lan_capable"):
         info["via_device"] = (DOMAIN, f"gateway_{uid}")
     return info
 
