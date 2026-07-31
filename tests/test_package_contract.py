@@ -37,7 +37,7 @@ class PackageContractTests(unittest.TestCase):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
         self.assertEqual(manifest["domain"], "orvibo_lan")
-        self.assertEqual(manifest["version"], "0.0.1")
+        self.assertEqual(manifest["version"], "0.0.2")
         self.assertEqual(manifest["codeowners"], ["@maycode0-0"])
         self.assertEqual(
             manifest["documentation"],
@@ -51,7 +51,7 @@ class PackageContractTests(unittest.TestCase):
         self.assertEqual(hacs["filename"], "orvibo_lan.zip")
         self.assertTrue(hacs["zip_release"])
         self.assertFalse(hacs["content_in_root"])
-        self.assertNotIn('version = "0.0.1"', pyproject)
+        self.assertNotRegex(pyproject, r"(?m)^\s*version\s*=")
         self.assertIn('dynamic = ["version"]', pyproject)
         self.assertIn('requires-python = ">=3.11"', pyproject)
 

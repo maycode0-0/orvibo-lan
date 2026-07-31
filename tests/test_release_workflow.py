@@ -43,6 +43,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         assert isinstance(triggers, dict)
         assert isinstance(jobs, dict)
         self.assertTrue({"push", "pull_request"}.issubset(triggers))
+        self.assertEqual(triggers["workflow_call"], {})
         self.assertTrue(
             {"quality", "tests", "package-contract", "hacs", "hassfest", "actionlint"}.issubset(
                 jobs
@@ -90,13 +91,16 @@ class ReleaseWorkflowTests(unittest.TestCase):
             },
         )
         self.assertEqual(triggers["workflow_dispatch"], {})
-        self.assertEqual(set(jobs), {"verify", "release"})
+        self.assertEqual(set(jobs), {"validate", "verify", "release"})
+        validate = jobs["validate"]
         verify = jobs["verify"]
         release = jobs["release"]
+        assert isinstance(validate, dict)
         assert isinstance(verify, dict)
         assert isinstance(release, dict)
+        self.assertEqual(validate["uses"], "./.github/workflows/validate.yml")
         self.assertNotIn("if", verify)
-        self.assertEqual(release["needs"], ["verify"])
+        self.assertEqual(release["needs"], ["validate", "verify"])
         self.assertEqual(release["permissions"], {"contents": "write"})
 
         steps = release["steps"]
