@@ -9,7 +9,9 @@ import pytest
 
 from custom_components.orvibo_lan import (
     OrviboLanRuntimeData,
+    _async_assign_areas,
     _register_services,
+    _schedule_area_assignment,
     _unregister_services_if_unused,
     async_migrate_entry,
     get_runtime_data,
@@ -75,6 +77,20 @@ def test_runtime_data_falls_back_to_hass_data() -> None:
     entry = SimpleNamespace(entry_id="entry-1")
 
     assert get_runtime_data(hass, entry) is runtime
+
+
+def test_area_assignment_callback_uses_thread_safe_job_and_clears_listener() -> None:
+    jobs: list[tuple[object, ...]] = []
+    runtime = OrviboLanRuntimeData(MagicMock(), MagicMock())
+    runtime.remove_start_listener = MagicMock()
+    hass = SimpleNamespace(add_job=lambda *args: jobs.append(args))
+    entry = SimpleNamespace(entry_id="entry-1")
+    event = SimpleNamespace()
+
+    _schedule_area_assignment(hass, entry, runtime, event)
+
+    assert runtime.remove_start_listener is None
+    assert jobs == [(_async_assign_areas, hass, entry, event)]
 
 
 class FakeServices:

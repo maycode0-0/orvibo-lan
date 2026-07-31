@@ -258,7 +258,10 @@ class OrviboLanOptionsFlow(config_entries.OptionsFlow):
     """Select exposed devices using fresh cloud metadata."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
+        # Home Assistant exposes ``config_entry`` as a read-only property on
+        # OptionsFlow. Keep the factory argument privately for compatibility
+        # with HA versions that do not populate that property yet.
+        self._config_entry = config_entry
         self._devices: list[JsonObject] = []
 
     async def async_step_init(
@@ -266,12 +269,13 @@ class OrviboLanOptionsFlow(config_entries.OptionsFlow):
         user_input: JsonObject | None = None,
     ) -> FlowResult:
         errors: dict[str, str] = {}
+        config_entry = self._config_entry
         if not self._devices:
             client = CloudClient(
                 async_get_clientsession(self.hass),
-                str(self.config_entry.data[CONF_USERNAME]),
-                str(self.config_entry.data[CONF_PASSWORD]),
-                str(self.config_entry.data.get(CONF_FAMILY_ID) or "") or None,
+                str(config_entry.data[CONF_USERNAME]),
+                str(config_entry.data[CONF_PASSWORD]),
+                str(config_entry.data.get(CONF_FAMILY_ID) or "") or None,
             )
             try:
                 await client.login()
@@ -291,7 +295,7 @@ class OrviboLanOptionsFlow(config_entries.OptionsFlow):
                 )
             errors["base"] = "no_devices_selected"
         current = selected_device_ids(
-            self.config_entry.options,
+            config_entry.options,
             (str(device["deviceId"]) for device in self._devices),
         )
         return self.async_show_form(

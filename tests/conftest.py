@@ -81,6 +81,12 @@ class FakeConfigFlow:
 
 
 class FakeOptionsFlow:
+    @property
+    def config_entry(self):
+        """Match Home Assistant's read-only OptionsFlow property."""
+
+        return None
+
     def async_show_form(self, **kwargs):
         return {"type": "form", **kwargs}
 

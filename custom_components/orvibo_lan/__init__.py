@@ -131,6 +131,20 @@ def _unregister_services_if_unused(hass: HomeAssistant) -> None:
         hass.services.async_remove(DOMAIN, SERVICE_REFRESH_DEVICES)
 
 
+def _schedule_area_assignment(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    runtime: OrviboLanRuntimeData,
+    event: Event,
+) -> None:
+    """Schedule area assignment safely from an event-bus callback thread."""
+
+    # ``async_listen_once`` removes itself after invoking the callback. Avoid
+    # trying to remove the same listener again during config-entry unload.
+    runtime.remove_start_listener = None
+    hass.add_job(_async_assign_areas, hass, entry, event)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up one config entry and all entity platforms."""
 
@@ -164,10 +178,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             runtime.remove_start_listener = hass.bus.async_listen_once(
                 EVENT_HOMEASSISTANT_STARTED,
-                lambda event: hass.async_create_task(
-                    _async_assign_areas(hass, entry, event),
-                    name=f"{DOMAIN}_assign_areas",
-                ),
+                lambda event: _schedule_area_assignment(hass, entry, runtime, event),
             )
     except Exception:
         if platforms_forwarded:

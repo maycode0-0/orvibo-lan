@@ -59,6 +59,21 @@ def test_selection_helpers_use_actual_production_functions() -> None:
     assert config_flow._validated_selection("one", devices) == []
 
 
+def test_options_flow_keeps_config_entry_without_setting_read_only_property() -> None:
+    entry = SimpleNamespace(
+        data={
+            CONF_USERNAME: "account",
+            CONF_PASSWORD: "password",
+            CONF_FAMILY_ID: "family-1",
+        },
+        options={CONF_SELECTED_DEVICE_IDS: ["device-1"]},
+    )
+
+    flow = config_flow.OrviboLanConfigFlow.async_get_options_flow(entry)
+
+    assert flow._config_entry is entry
+
+
 @pytest.mark.asyncio
 async def test_user_flow_selects_family_devices_and_scopes_unique_id() -> None:
     client = FakeCloudClient()

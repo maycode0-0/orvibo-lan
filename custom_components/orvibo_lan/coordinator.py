@@ -362,12 +362,12 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         device = self.devices.get(device_id)
         if device is None:
             return False
+        if device.get("_orvibo_read_only"):
+            return bool(getattr(self, "last_update_success", True))
         state = self.device_states.get(device_id, {})
         online = state.get("online")
         if online in (False, 0, "0", "false", "offline"):
             return False
-        if device.get("_orvibo_read_only"):
-            return bool(getattr(self, "last_update_success", True))
         uid = device.get("uid")
         manager = self.gateway_manager
         return bool(
