@@ -38,6 +38,15 @@ class PackageContractTests(unittest.TestCase):
 
         self.assertEqual(manifest["domain"], "orvibo_lan")
         self.assertEqual(manifest["version"], "0.0.1")
+        self.assertEqual(manifest["codeowners"], ["@maycode0-0"])
+        self.assertEqual(
+            manifest["documentation"],
+            "https://github.com/maycode0-0/orvibo-lan",
+        )
+        self.assertEqual(
+            manifest["issue_tracker"],
+            "https://github.com/maycode0-0/orvibo-lan/issues",
+        )
         self.assertEqual(hacs["homeassistant"], "2024.1.0")
         self.assertEqual(hacs["filename"], "orvibo_lan.zip")
         self.assertTrue(hacs["zip_release"])
