@@ -138,7 +138,7 @@ async def test_bad_crc_disconnects_current_generation() -> None:
 
 
 @pytest.mark.asyncio
-async def test_login_must_explicitly_confirm_expected_uid() -> None:
+async def test_hello_uid_confirms_gateway_when_login_omits_uid() -> None:
     async def open_connection(host: str, port: int) -> tuple[asyncio.StreamReader, FakeWriter]:
         del host, port
         reader = asyncio.StreamReader()
@@ -168,7 +168,44 @@ async def test_login_must_explicitly_confirm_expected_uid() -> None:
         return reader, writer
 
     connection = GatewayConnection("192.168.1.2", open_connection=open_connection)
-    with pytest.raises(GatewayConnectionError):
+    await connection.connect("user", "password", expected_uid="expected")
+    assert connection.identity_confirmed
+    assert connection.peer_uid == "expected"
+    await connection.close()
+
+
+@pytest.mark.asyncio
+async def test_login_rejects_gateway_when_hello_uid_does_not_match() -> None:
+    async def open_connection(host: str, port: int) -> tuple[asyncio.StreamReader, FakeWriter]:
+        del host, port
+        reader = asyncio.StreamReader()
+        writer = FakeWriter(reader)
+
+        async def server() -> None:
+            while len(writer.writes) < 1:
+                await asyncio.sleep(0)
+            hello = parse_packet(writer.writes[0], {})
+            writer.respond(
+                {
+                    "cmd": hello["cmd"],
+                    "serial": hello["serial"],
+                    "uid": "actual",
+                    "sessionKey": SESSION_KEY.hex(),
+                },
+                packet_type=PK_TYPE,
+                key=DEFAULT_KEY,
+                session_id=SESSION,
+            )
+            while len(writer.writes) < 2:
+                await asyncio.sleep(0)
+            login = parse_packet(writer.writes[1], {SESSION: SESSION_KEY})
+            writer.respond({"cmd": login["cmd"], "serial": login["serial"], "status": 0})
+
+        asyncio.create_task(server())
+        return reader, writer
+
+    connection = GatewayConnection("192.168.1.2", open_connection=open_connection)
+    with pytest.raises(GatewayConnectionError, match="expected UID"):
         await connection.connect("user", "password", expected_uid="expected")
     assert not connection.identity_confirmed
     assert not connection.connected

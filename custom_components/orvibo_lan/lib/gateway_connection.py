@@ -190,6 +190,7 @@ class GatewayConnection:
             raw_key = hello.get("sessionKey") or hello.get("key")
             if session_id is None or raw_key is None:
                 raise GatewayConnectionError("hello response omitted session credentials")
+            hello_uid = self._extract_uid(hello)
             self.session_key = self._decode_session_key(raw_key)
             self.session_id = session_id
             self._keys[session_id] = self.session_key
@@ -210,12 +211,18 @@ class GatewayConnection:
                     f"gateway login failed with status {login.get('status')!r}"
                 )
 
-            self.peer_uid = self._extract_uid(login)
+            login_uid = self._extract_uid(login)
+            if hello_uid and login_uid and hello_uid != login_uid:
+                raise GatewayConnectionError("gateway handshake returned conflicting UIDs")
+            self.peer_uid = login_uid or hello_uid
             self.identity_confirmed = bool(
                 expected_uid is not None and self.peer_uid == expected_uid
             )
             if expected_uid is not None and not self.identity_confirmed:
-                raise GatewayConnectionError("gateway login response did not confirm expected UID")
+                raise GatewayConnectionError(
+                    "gateway handshake did not confirm expected UID "
+                    f"(expected={expected_uid!r}, peer={self.peer_uid!r})"
+                )
 
             self._ready = True
             self._heartbeat_task = asyncio.create_task(
