@@ -9,6 +9,7 @@ from custom_components.orvibo_lan.lib.gateway_connection import (
     GatewayConnection,
     GatewayConnectionError,
     GatewayDisconnectedError,
+    GatewayLoginRejectedError,
     GatewayRequestTimeoutError,
 )
 from custom_components.orvibo_lan.lib.protocol import (
@@ -171,6 +172,42 @@ async def test_hello_uid_confirms_gateway_when_login_omits_uid() -> None:
     await connection.connect("user", "password", expected_uid="expected")
     assert connection.identity_confirmed
     assert connection.peer_uid == "expected"
+    await connection.close()
+
+
+@pytest.mark.asyncio
+async def test_login_rejection_raises_gateway_login_rejected_error() -> None:
+    async def open_connection(host: str, port: int) -> tuple[asyncio.StreamReader, FakeWriter]:
+        del host, port
+        reader = asyncio.StreamReader()
+        writer = FakeWriter(reader)
+
+        async def server() -> None:
+            while len(writer.writes) < 1:
+                await asyncio.sleep(0)
+            hello = parse_packet(writer.writes[0], {})
+            writer.respond(
+                {
+                    "cmd": hello["cmd"],
+                    "serial": hello["serial"],
+                    "uid": "expected",
+                    "sessionKey": SESSION_KEY.hex(),
+                },
+                packet_type=PK_TYPE,
+                key=DEFAULT_KEY,
+                session_id=SESSION,
+            )
+            while len(writer.writes) < 2:
+                await asyncio.sleep(0)
+            login = parse_packet(writer.writes[1], {SESSION: SESSION_KEY})
+            writer.respond({"cmd": login["cmd"], "serial": login["serial"], "status": 12})
+
+        asyncio.create_task(server())
+        return reader, writer
+
+    connection = GatewayConnection("192.168.1.2", open_connection=open_connection)
+    with pytest.raises(GatewayLoginRejectedError):
+        await connection.connect("user", "password", expected_uid="expected")
     await connection.close()
 
 

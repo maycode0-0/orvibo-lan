@@ -32,6 +32,7 @@ from .device_profiles import (
 from .exceptions import OrviboLanError, StateStoreError
 from .gateway_manager import GatewayManager
 from .lib.cloud_client import CloudAuthenticationError, CloudClient
+from .lib.gateway_connection import GatewayLoginRejectedError
 from .models import StateSource, StateUpdate
 from .state_store import StateStore
 
@@ -217,6 +218,10 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
             return_exceptions=True,
         )
         for uid, result in zip(self._gateway_ips, results):
+            if isinstance(result, GatewayLoginRejectedError):
+                raise ConfigEntryAuthFailed(
+                    f"ORVIBO gateway {uid} rejected the login credentials"
+                )
             if isinstance(result, BaseException):
                 _LOGGER.debug("Gateway %s is not ready: %s", uid, result)
 
