@@ -91,6 +91,42 @@ async def test_single_reader_routes_concurrent_serial_responses() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("command", [42, "42", 99])
+async def test_routes_unsolicited_device_updates_to_push_callback(command: int | str) -> None:
+    pushes: list[dict[str, Any]] = []
+
+    def push_callback(payload: dict[str, Any]) -> None:
+        pushes.append(payload)
+
+    connection = GatewayConnection("192.168.1.2", push_callback=push_callback)
+    _, writer = activate(connection)
+    writer.respond({"cmd": command, "deviceId": "door", "value1": 1})
+    while not pushes:
+        await asyncio.sleep(0)
+
+    assert len(pushes) == 1
+    public_push = {key: value for key, value in pushes[0].items() if not key.startswith("__")}
+    assert public_push == {"cmd": command, "deviceId": "door", "value1": 1}
+    await connection.close()
+
+
+@pytest.mark.asyncio
+async def test_correlated_device_response_is_not_mistaken_for_push() -> None:
+    pushes: list[dict[str, Any]] = []
+    connection = GatewayConnection("192.168.1.2", push_callback=pushes.append)
+    _, writer = activate(connection)
+    request = asyncio.create_task(connection.send({"cmd": 15, "serial": 101}))
+    while len(writer.writes) < 1:
+        await asyncio.sleep(0)
+    writer.respond({"cmd": 15, "serial": 101, "deviceId": "door", "status": 0})
+
+    assert (await request)["status"] == 0
+    await asyncio.sleep(0)
+    assert pushes == []
+    await connection.close()
+
+
+@pytest.mark.asyncio
 async def test_unreliable_requests_are_single_flight_and_lock_wait_times_out() -> None:
     connection = GatewayConnection("192.168.1.2")
     _, writer = activate(connection)
@@ -201,9 +237,7 @@ async def test_empty_gateway_uid_is_only_allowed_for_trusted_host(
             while len(writer.writes) < 2:
                 await asyncio.sleep(0)
             login = parse_packet(writer.writes[1], {SESSION: SESSION_KEY})
-            writer.respond(
-                {"cmd": login["cmd"], "serial": login["serial"], "status": 0, "uid": ""}
-            )
+            writer.respond({"cmd": login["cmd"], "serial": login["serial"], "status": 0, "uid": ""})
 
         asyncio.create_task(server())
         return reader, writer

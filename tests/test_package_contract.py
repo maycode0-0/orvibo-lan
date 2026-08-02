@@ -37,7 +37,7 @@ class PackageContractTests(unittest.TestCase):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
         self.assertEqual(manifest["domain"], "orvibo_lan")
-        self.assertEqual(manifest["version"], "0.0.5")
+        self.assertEqual(manifest["version"], "0.0.6")
         self.assertEqual(manifest["codeowners"], ["@maycode0-0"])
         self.assertEqual(
             manifest["documentation"],

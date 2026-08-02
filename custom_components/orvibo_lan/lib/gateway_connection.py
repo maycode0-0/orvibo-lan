@@ -241,6 +241,13 @@ class GatewayConnection:
                 self._heartbeat_loop(generation),
                 name=f"orvibo-heartbeat-{self.host}-{generation}",
             )
+            _LOGGER.debug(
+                "Gateway connection ready for %s (generation=%s, identity_confirmed=%s, pushes=%s)",
+                self.host,
+                generation,
+                self.identity_confirmed,
+                self._push_callback is not None,
+            )
 
     async def request(
         self,
@@ -475,25 +482,71 @@ class GatewayConnection:
         return header + await reader.readexactly(length - 4)
 
     async def _route(self, payload: Payload) -> None:
-        if payload.get("cmd") == CMD_STATE_UPDATE:
-            if self._push_callback is not None:
-                try:
-                    result = self._push_callback(payload)
-                    if inspect.isawaitable(result):
-                        await result
-                except Exception:
-                    _LOGGER.exception("Gateway push callback failed for %s", self.host)
-            return
-
+        command = self._command_value(payload.get("cmd"))
         response_routes = self._correlation_keys(payload)
         future = next(
             (self._pending[route] for route in response_routes if route in self._pending),
             None,
         )
-        if future is None and not response_routes:
-            future = self._single_pending
+        single_pending = self._single_pending if not response_routes else None
+
+        # Standard cmd=42 pushes bypass request correlation. Some firmware sends
+        # the command as a string, or uses another unsolicited command number.
+        is_unsolicited_update = command == CMD_STATE_UPDATE or (
+            future is None and single_pending is None and self._has_device_id(payload)
+        )
+        if is_unsolicited_update:
+            _LOGGER.debug(
+                "Gateway %s received device update (cmd=%r, fields=%s)",
+                self.host,
+                payload.get("cmd"),
+                tuple(sorted(str(key) for key in payload if not str(key).startswith("__"))),
+            )
+            if self._push_callback is not None:
+                try:
+                    result = self._push_callback(payload)
+                    if inspect.isawaitable(result):
+                        await result
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    _LOGGER.exception("Gateway push callback failed for %s", self.host)
+            else:
+                _LOGGER.debug(
+                    "Gateway %s dropped device update because pushes are disabled",
+                    self.host,
+                )
+            return
+
+        if future is None:
+            future = single_pending
         if future is not None and not future.done():
             future.set_result(payload)
+
+    @staticmethod
+    def _command_value(value: Any) -> int | None:
+        """Normalize integer command fields without accepting booleans."""
+
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value.strip())
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _has_device_id(payload: Mapping[str, Any]) -> bool:
+        """Identify unsolicited device updates without logging the identifier."""
+
+        for field in ("deviceId", "deviceID", "device_id"):
+            value = payload.get(field)
+            if isinstance(value, (str, int)) and not isinstance(value, bool) and str(value):
+                return True
+        return False
 
     async def _heartbeat_loop(self, generation: int) -> None:
         try:

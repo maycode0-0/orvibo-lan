@@ -99,6 +99,38 @@ async def test_lan_push_notifies_listeners_once_after_debounce() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("id_field", ["deviceId", "deviceID", "device_id"])
+async def test_lan_push_normalizes_firmware_device_id_variants(id_field: str) -> None:
+    coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=cloud_result())
+    await coordinator._refresh_devices_from_cloud()
+
+    await coordinator._on_status_update({id_field: " device-1 ", "value1": 0})
+    await coordinator._notify_task
+
+    state = coordinator.get_device_state("device-1")
+    assert state is not None
+    assert state["deviceId"] == "device-1"
+    assert state["value1"] == 0
+    assert "deviceID" not in state
+    assert "device_id" not in state
+
+
+@pytest.mark.asyncio
+async def test_lan_push_without_supported_device_id_is_ignored() -> None:
+    coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=cloud_result())
+    await coordinator._refresh_devices_from_cloud()
+
+    await coordinator._on_status_update({"device": "device-1", "value1": 0})
+
+    assert coordinator._notify_task is None
+    state = coordinator.get_device_state("device-1")
+    assert state is not None
+    assert state["value1"] == 1
+
+
+@pytest.mark.asyncio
 async def test_older_cloud_snapshot_does_not_roll_back_lan() -> None:
     coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
     coordinator.cloud_client.fetch_devices = AsyncMock(return_value=cloud_result())

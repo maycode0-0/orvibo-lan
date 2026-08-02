@@ -218,7 +218,17 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         )
         for uid, result in zip(self._gateway_ips, results):
             if isinstance(result, BaseException):
-                _LOGGER.debug("Gateway %s is not ready: %s", uid, result)
+                _LOGGER.debug(
+                    "Gateway %s is not ready: %s",
+                    self._masked_device_id(uid),
+                    result,
+                )
+            else:
+                _LOGGER.debug(
+                    "Gateway %s connection ready (connected=%s)",
+                    self._masked_device_id(uid),
+                    result.connected,
+                )
 
     async def _gateway_discover_loop(self) -> None:
         """Periodically ask GatewayManager to validate discovery candidates."""
@@ -240,13 +250,23 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
     async def _on_status_update(self, payload: Mapping[str, object]) -> None:
         """Merge one cmd=42 update received by the manager-owned reader."""
 
-        device_id_value = payload.get("deviceId")
-        if not isinstance(device_id_value, (str, int)):
+        fields = tuple(sorted(str(key) for key in payload if not str(key).startswith("__")))
+        device_id = self._payload_device_id(payload)
+        if device_id is None:
+            _LOGGER.debug(
+                "Dropped LAN state without a device ID (cmd=%r, fields=%s)",
+                payload.get("cmd"),
+                fields,
+            )
             return
-        device_id = str(device_id_value)
         store = self._state_store
         if store is None or device_id not in store.device_ids:
-            _LOGGER.debug("Ignoring state for unknown device %s", device_id)
+            _LOGGER.debug(
+                "Ignoring LAN state for unknown device %s (cmd=%r, fields=%s)",
+                self._masked_device_id(device_id),
+                payload.get("cmd"),
+                fields,
+            )
             return
 
         values = {
@@ -254,6 +274,9 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
             for key, value in payload.items()
             if not str(key).startswith("__") and value is not None
         }
+        values.pop("deviceID", None)
+        values.pop("device_id", None)
+        values["deviceId"] = device_id
         self._lan_generation += 1
         try:
             changed = store.apply(
@@ -266,18 +289,55 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
                 )
             )
         except StateStoreError as err:
-            _LOGGER.debug("Rejected LAN state for %s: %s", device_id, err)
+            _LOGGER.debug(
+                "Rejected LAN state for device %s: %s",
+                self._masked_device_id(device_id),
+                err,
+            )
             return
         if not changed:
+            _LOGGER.debug(
+                "LAN state unchanged for device %s (cmd=%r, fields=%s)",
+                self._masked_device_id(device_id),
+                payload.get("cmd"),
+                fields,
+            )
             return
 
         self._sync_public_states(notify=False)
+        _LOGGER.debug(
+            "Applied LAN state for device %s (cmd=%r, fields=%s)",
+            self._masked_device_id(device_id),
+            payload.get("cmd"),
+            fields,
+        )
         if self._notify_task is not None and not self._notify_task.done():
             self._notify_task.cancel()
         self._notify_task = self.hass.async_create_background_task(
             self._debounced_notify(),
             name=f"{DOMAIN}_state_notify",
         )
+
+    @staticmethod
+    def _payload_device_id(payload: Mapping[str, object]) -> str | None:
+        """Return a normalized device identifier used by known firmware variants."""
+
+        for field in ("deviceId", "deviceID", "device_id"):
+            value = payload.get(field)
+            if isinstance(value, bool) or not isinstance(value, (str, int)):
+                continue
+            device_id = str(value).strip()
+            if device_id:
+                return device_id
+        return None
+
+    @staticmethod
+    def _masked_device_id(device_id: str) -> str:
+        """Return a stable, privacy-safe identifier for diagnostics."""
+
+        if len(device_id) <= 4:
+            return "***"
+        return f"***{device_id[-4:]}"
 
     async def async_control_device(
         self,
@@ -464,5 +524,9 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         try:
             await asyncio.sleep(0.2)
             self.async_set_updated_data(self.device_states)
+            _LOGGER.debug(
+                "Published LAN state update to Home Assistant (devices=%s)",
+                len(self.device_states),
+            )
         except asyncio.CancelledError:
             raise
