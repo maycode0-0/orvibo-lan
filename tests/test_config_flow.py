@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -83,6 +83,11 @@ async def test_user_flow_selects_family_devices_and_scopes_unique_id() -> None:
     with (
         patch.object(config_flow, "CloudClient", return_value=client),
         patch.object(config_flow, "async_get_clientsession", return_value=object()),
+        patch.object(
+            config_flow.OrviboLanConfigFlow,
+            "_probe_gateway_login",
+            new=AsyncMock(return_value=True),
+        ),
     ):
         result = await flow.async_step_user({CONF_USERNAME: "account", CONF_PASSWORD: "password"})
         assert result["step_id"] == "select_family"

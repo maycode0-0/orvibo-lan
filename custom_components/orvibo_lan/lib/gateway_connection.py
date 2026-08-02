@@ -60,6 +60,10 @@ class GatewayRequestTimeoutError(GatewayConnectionError, TimeoutError):
     """Raised when a complete request exceeds its deadline."""
 
 
+class GatewayLoginRejectedError(GatewayConnectionError):
+    """Raised when the gateway explicitly rejects the login credentials."""
+
+
 def _serial() -> int:
     return next_serial()
 
@@ -215,7 +219,7 @@ class GatewayConnection:
                 timeout=request_timeout,
             )
             if login.get("status") != 0:
-                raise GatewayConnectionError(
+                raise GatewayLoginRejectedError(
                     f"gateway login failed with status {login.get('status')!r}"
                 )
 

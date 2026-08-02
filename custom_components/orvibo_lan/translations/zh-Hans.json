@@ -32,7 +32,8 @@
       "no_devices_selected": "请至少选择一个设备"
     },
     "abort": {
-      "already_configured": "该账号已配置"
+      "already_configured": "该账号已配置",
+      "auth_failed": "登录失败，请检查账号密码"
     }
   },
   "options": {
