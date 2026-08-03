@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from custom_components.orvibo_lan.coordinator import OrviboLanCoordinator
+from custom_components.orvibo_lan.lib.gateway_connection import GatewayConnectionError
 from custom_components.orvibo_lan.models import StateSource
 
 
@@ -45,6 +47,35 @@ def cloud_result(
         {"gateway-1": "192.168.1.2"},
         object(),
     )
+
+
+@pytest.mark.asyncio
+async def test_gateway_failure_logs_reason_without_exception_details(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    gateway_uid = "private-gateway-12345678"
+    secret = "private-handshake-detail"
+    coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
+    coordinator._gateway_ips = {gateway_uid: "192.168.1.2"}
+    coordinator.gateway_manager = SimpleNamespace(
+        ensure=AsyncMock(
+            side_effect=GatewayConnectionError(
+                secret,
+                reason="hello_uid_mismatch",
+            )
+        )
+    )
+    caplog.set_level(
+        logging.DEBUG,
+        logger="custom_components.orvibo_lan.coordinator",
+    )
+
+    await coordinator._connect_all_gateways()
+
+    assert "reason=hello_uid_mismatch" in caplog.text
+    assert "***5678" in caplog.text
+    assert gateway_uid not in caplog.text
+    assert secret not in caplog.text
 
 
 @pytest.mark.asyncio

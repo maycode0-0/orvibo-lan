@@ -32,6 +32,7 @@ from .device_profiles import (
 from .exceptions import OrviboLanError, StateStoreError
 from .gateway_manager import GatewayManager
 from .lib.cloud_client import CloudAuthenticationError, CloudClient
+from .lib.gateway_connection import GatewayConnectionError
 from .lib.packet import CMD_STATE_UPDATE
 from .models import StateSource, StateUpdate
 from .privacy import mask_identifier
@@ -252,10 +253,15 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         )
         for uid, result in zip(self._gateway_ips, results):
             if isinstance(result, BaseException):
+                reason = (
+                    result.reason
+                    if isinstance(result, GatewayConnectionError)
+                    else type(result).__name__
+                )
                 _LOGGER.debug(
-                    "Gateway %s is not ready (%s)",
+                    "Gateway %s is not ready (reason=%s)",
                     self._masked_device_id(uid),
-                    type(result).__name__,
+                    reason,
                 )
             else:
                 _LOGGER.debug(

@@ -149,6 +149,32 @@ async def test_push_logs_mask_host_and_device_id(caplog: pytest.LogCaptureFixtur
 
 
 @pytest.mark.asyncio
+async def test_heartbeat_failure_logs_safe_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    host = "192.168.1.27"
+    connection = GatewayConnection(
+        host,
+        heartbeat_interval=0,
+        heartbeat_timeout=0.01,
+    )
+    activate(connection)
+    caplog.set_level(
+        logging.DEBUG,
+        logger="custom_components.orvibo_lan.lib.gateway_connection",
+    )
+    heartbeat = asyncio.create_task(connection._heartbeat_loop(connection.generation))
+    connection._heartbeat_task = heartbeat
+
+    await heartbeat
+
+    assert not connection.connected
+    assert "reason=request_timeout" in caplog.text
+    assert host not in caplog.text
+    assert "192.168.1.*" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_correlated_device_response_is_not_mistaken_for_push() -> None:
     pushes: list[dict[str, Any]] = []
     connection = GatewayConnection("192.168.1.2", push_callback=pushes.append)
@@ -337,6 +363,7 @@ async def test_hello_rejects_mismatched_uid_before_login() -> None:
     assert not connection.identity_confirmed
     assert not connection.connected
     assert len(writers[0].writes) == 1
+    assert raised.value.reason == "hello_uid_mismatch"
     assert "actual-private-gateway" not in str(raised.value)
     assert "expected-private-gateway" not in str(raised.value)
 

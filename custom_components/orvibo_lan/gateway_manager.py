@@ -165,7 +165,10 @@ class GatewayManager:
 
                 if self._closed:
                     await candidate_connection.close()
-                    raise GatewayConnectionError("gateway manager is closed")
+                    raise GatewayConnectionError(
+                        "gateway manager is closed",
+                        reason="manager_closed",
+                    )
 
                 previous = record.connection
                 record.connection = candidate_connection
@@ -233,7 +236,10 @@ class GatewayManager:
         )
         if self._closed:
             await connection.close()
-            raise GatewayConnectionError("gateway manager is closed")
+            raise GatewayConnectionError(
+                "gateway manager is closed",
+                reason="manager_closed",
+            )
         record.connection = connection
         return connection
 
@@ -266,7 +272,10 @@ class GatewayManager:
 
     def _raise_if_closed(self) -> None:
         if self._closed:
-            raise GatewayConnectionError("gateway manager is closed")
+            raise GatewayConnectionError(
+                "gateway manager is closed",
+                reason="manager_closed",
+            )
 
     def _record(self, uid: str) -> _GatewayRecord:
         try:
