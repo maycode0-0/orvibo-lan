@@ -12,6 +12,7 @@ from contextlib import suppress
 from typing import Any
 
 from ..exceptions import InvalidLengthError, InvalidMagicError, OrviboLanError, ProtocolError
+from ..privacy import mask_host, mask_identifier
 from .packet import (
     CMD_HEARTBEAT,
     CMD_HELLO,
@@ -184,7 +185,7 @@ class GatewayConnection:
             self._keys = {ID_UNSET: DEFAULT_KEY}
             self._reader_task = asyncio.create_task(
                 self._reader_loop(generation, reader, writer),
-                name=f"orvibo-reader-{self.host}-{generation}",
+                name=f"orvibo-reader-{mask_identifier(self.host)}-{generation}",
             )
 
             hello = await self.request(
@@ -199,6 +200,8 @@ class GatewayConnection:
             if session_id is None or raw_key is None:
                 raise GatewayConnectionError("hello response omitted session credentials")
             hello_uid = self._extract_uid(hello)
+            if expected_uid is not None and hello_uid is not None and hello_uid != expected_uid:
+                raise GatewayConnectionError("gateway hello did not confirm expected UID")
             self.session_key = self._decode_session_key(raw_key)
             self.session_id = session_id
             self._keys[session_id] = self.session_key
@@ -215,9 +218,7 @@ class GatewayConnection:
                 timeout=request_timeout,
             )
             if login.get("status") != 0:
-                raise GatewayConnectionError(
-                    f"gateway login failed with status {login.get('status')!r}"
-                )
+                raise GatewayConnectionError("gateway login was rejected")
 
             login_uid = self._extract_uid(login)
             if hello_uid and login_uid and hello_uid != login_uid:
@@ -231,19 +232,21 @@ class GatewayConnection:
                 and not self.identity_confirmed
                 and not (allow_missing_uid and self.peer_uid is None)
             ):
-                raise GatewayConnectionError(
-                    "gateway handshake did not confirm expected UID "
-                    f"(expected={expected_uid!r}, peer={self.peer_uid!r})"
+                raise GatewayConnectionError("gateway handshake did not confirm expected UID")
+            if expected_uid is not None and self.peer_uid is None:
+                _LOGGER.warning(
+                    "Gateway %s did not return an identity; using the cloud-provided endpoint",
+                    mask_host(self.host),
                 )
 
             self._ready = True
             self._heartbeat_task = asyncio.create_task(
                 self._heartbeat_loop(generation),
-                name=f"orvibo-heartbeat-{self.host}-{generation}",
+                name=f"orvibo-heartbeat-{mask_identifier(self.host)}-{generation}",
             )
             _LOGGER.debug(
                 "Gateway connection ready for %s (generation=%s, identity_confirmed=%s, pushes=%s)",
-                self.host,
+                mask_host(self.host),
                 generation,
                 self.identity_confirmed,
                 self._push_callback is not None,
@@ -420,7 +423,6 @@ class GatewayConnection:
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
-        failure: BaseException | None = None
         try:
             while generation == self.generation and not self._closed:
                 packet = await self._read_frame(reader)
@@ -436,14 +438,17 @@ class GatewayConnection:
             asyncio.IncompleteReadError,
             ProtocolError,
         ) as error:
-            failure = error
-            _LOGGER.debug("Gateway reader stopped for %s: %s", self.host, error)
+            _LOGGER.debug(
+                "Gateway reader stopped for %s (%s)",
+                mask_host(self.host),
+                type(error).__name__,
+            )
         finally:
             if generation == self.generation and not self._closed:
                 self._disconnect_generation(
                     generation,
                     writer,
-                    GatewayDisconnectedError(f"gateway reader stopped: {failure!s}"),
+                    GatewayDisconnectedError("gateway reader stopped"),
                 )
 
     def _disconnect_generation(
@@ -490,16 +495,17 @@ class GatewayConnection:
         )
         single_pending = self._single_pending if not response_routes else None
 
-        # Standard cmd=42 pushes bypass request correlation. Some firmware sends
-        # the command as a string, or uses another unsolicited command number.
+        # Some firmware uses a non-standard command number for uncorrelated
+        # device updates. Those packets receive stricter gateway and field
+        # validation in the coordinator before they can affect entity state.
         is_unsolicited_update = command == CMD_STATE_UPDATE or (
             future is None and single_pending is None and self._has_device_id(payload)
         )
         if is_unsolicited_update:
             _LOGGER.debug(
                 "Gateway %s received device update (cmd=%r, fields=%s)",
-                self.host,
-                payload.get("cmd"),
+                mask_host(self.host),
+                command,
                 tuple(sorted(str(key) for key in payload if not str(key).startswith("__"))),
             )
             if self._push_callback is not None:
@@ -509,12 +515,16 @@ class GatewayConnection:
                         await result
                 except asyncio.CancelledError:
                     raise
-                except Exception:
-                    _LOGGER.exception("Gateway push callback failed for %s", self.host)
+                except Exception as error:
+                    _LOGGER.error(
+                        "Gateway push callback failed for %s (%s)",
+                        mask_host(self.host),
+                        type(error).__name__,
+                    )
             else:
                 _LOGGER.debug(
                     "Gateway %s dropped device update because pushes are disabled",
-                    self.host,
+                    mask_host(self.host),
                 )
             return
 

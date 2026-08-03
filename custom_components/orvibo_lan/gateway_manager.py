@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -20,6 +20,7 @@ from .lib.gateway_connection import (
 _LOGGER = logging.getLogger(__name__)
 
 ConnectionFactory = Callable[[str], GatewayConnection]
+ManagerPushCallback = Callable[[str, Mapping[str, Any]], Awaitable[None] | None]
 
 
 @dataclass(slots=True)
@@ -40,7 +41,7 @@ class GatewayManager:
         *,
         discovery: GatewayDiscovery | None = None,
         connection_factory: ConnectionFactory | None = None,
-        push_callback: PushCallback | None = None,
+        push_callback: ManagerPushCallback | None = None,
     ) -> None:
         self.username = username
         self.password = password
@@ -169,7 +170,10 @@ class GatewayManager:
                 previous = record.connection
                 record.connection = candidate_connection
                 record.active_host = candidate.host
-                self._set_push_callback(candidate_connection, self._push_callback)
+                self._set_push_callback(
+                    candidate_connection,
+                    self._bound_push_callback(uid),
+                )
 
             if previous is not None:
                 await previous.close()
@@ -193,7 +197,10 @@ class GatewayManager:
         )
         for result in results:
             if isinstance(result, BaseException):
-                _LOGGER.warning("Failed to close an ORVIBO gateway connection: %s", result)
+                _LOGGER.warning(
+                    "Failed to close an ORVIBO gateway connection (%s)",
+                    type(result).__name__,
+                )
 
     async def _ensure_locked(
         self,
@@ -242,7 +249,7 @@ class GatewayManager:
         connection = self._connection_factory(host)
         self._set_push_callback(
             connection,
-            self._push_callback if enable_pushes else None,
+            self._bound_push_callback(uid) if enable_pushes else None,
         )
         try:
             await connection.connect(
@@ -265,10 +272,20 @@ class GatewayManager:
         try:
             return self._records[uid]
         except KeyError as error:
-            raise KeyError(f"unknown gateway UID: {uid}") from error
+            raise KeyError("unknown gateway UID") from error
 
     def _lock(self, uid: str) -> asyncio.Lock:
         return self._locks.setdefault(uid, asyncio.Lock())
+
+    def _bound_push_callback(self, uid: str) -> PushCallback | None:
+        callback = self._push_callback
+        if callback is None:
+            return None
+
+        def bound(payload: Mapping[str, Any]) -> Awaitable[None] | None:
+            return callback(uid, payload)
+
+        return bound
 
     @staticmethod
     def _set_push_callback(

@@ -99,7 +99,7 @@ def oauth_payload() -> dict[str, object]:
 
 
 class CloudClientLoginTests(unittest.IsolatedAsyncioTestCase):
-    async def test_default_oauth_uses_safe_get_options(self) -> None:
+    async def test_default_oauth_uses_form_post(self) -> None:
         session = FakeSession(
             [
                 FakeResponse(oauth_payload()),
@@ -109,30 +109,31 @@ class CloudClientLoginTests(unittest.IsolatedAsyncioTestCase):
         client = CloudClient(session, "account@example.com", "password")
         await client.login()
         method, url, kwargs = session.calls[0]
-        self.assertEqual(method, "GET")
+        self.assertEqual(method, "POST")
         self.assertTrue(url.startswith("https://"))
         self.assertTrue(url.endswith("/getOauthToken"))
         self.assertNotIn("account@example.com", url)
         self.assertEqual(kwargs["allow_redirects"], False)
         self.assertIsInstance(kwargs["timeout"], aiohttp.ClientTimeout)
-        params = kwargs["params"]
-        self.assertIsInstance(params, Mapping)
-        self.assertEqual(params["userName"], "account@example.com")
-        self.assertEqual(len(params["password"]), 32)
+        self.assertNotIn("params", kwargs)
+        data = kwargs["data"]
+        self.assertIsInstance(data, Mapping)
+        self.assertEqual(data["userName"], "account@example.com")
+        self.assertEqual(len(data["password"]), 32)
 
-    async def test_explicit_post_oauth_uses_form_data(self) -> None:
+    async def test_explicit_get_oauth_retains_compatibility(self) -> None:
         session = FakeSession(
             [
                 FakeResponse(oauth_payload()),
                 FakeResponse({"code": 0, "data": []}),
             ]
         )
-        client = CloudClient(session, "account", "password", oauth_method="POST")
+        client = CloudClient(session, "account", "password", oauth_method="GET")
         await client.login()
         method, _, kwargs = session.calls[0]
-        self.assertEqual(method, "POST")
-        self.assertIn("data", kwargs)
-        self.assertNotIn("params", kwargs)
+        self.assertEqual(method, "GET")
+        self.assertIn("params", kwargs)
+        self.assertNotIn("data", kwargs)
 
     async def test_login_parses_families_and_selects_first(self) -> None:
         family = {"familyId": "family-1", "familyName": "Home"}
@@ -263,7 +264,7 @@ class CloudClientDeviceTests(unittest.IsolatedAsyncioTestCase):
         devices, *_ = await client.fetch_devices()
 
         self.assertEqual(devices, [])
-        self.assertEqual([call[0] for call in session.calls], ["POST", "GET", "POST", "POST"])
+        self.assertEqual([call[0] for call in session.calls], ["POST", "POST", "POST", "POST"])
 
     async def test_fetch_devices_preserves_six_item_contract(self) -> None:
         payload = {

@@ -93,7 +93,8 @@ async def test_user_flow_selects_family_devices_and_scopes_unique_id() -> None:
         result = await flow.async_step_devices({CONF_SELECTED_DEVICE_IDS: ["device-1"]})
 
     assert result["type"] == "create_entry"
-    assert result["title"] == "account - Office"
+    assert result["title"] == "Office"
+    assert "account" not in result["title"]
     assert result["data"][CONF_FAMILY_ID] == "family-2"
     assert result["options"] == {CONF_SELECTED_DEVICE_IDS: ["device-1"]}
     assert flow.unique_id == "user-1:family-2"

@@ -120,6 +120,6 @@ def parse_packet(
         plain = _decrypt_aes_ecb(key, encrypted)
         payload = json.loads(plain)
         return payload if isinstance(payload, dict) else None
-    except Exception as e:
-        _LOGGER.error(f"解密/解析失败: {e}")
+    except Exception as error:
+        _LOGGER.error("解密/解析失败 (%s)", type(error).__name__)
         return None

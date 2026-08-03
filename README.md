@@ -100,6 +100,22 @@ Home Assistant
 
 协议字段和设备命令详见 [DEVICE_PROTOCOL_REFERENCE.md](DEVICE_PROTOCOL_REFERENCE.md)。新增设备所需资料见 [DEVICE_EXTENSION_GUIDE.md](DEVICE_EXTENSION_GUIDE.md)。
 
+## 安全与隐私
+
+TCP 8088 是 MixPad 提供的局域网控制端口，不是 Home Assistant 的监听端口。开放 HA 8123 不会自动开放 8088，但路由器端口转发、DMZ、UPnP/NAT-PMP 或宽松的 IPv6 入站规则可能让 MixPad 暴露到公网。
+
+推荐将 MixPad 放入独立 IoT VLAN，并使用最小访问规则：
+
+```text
+允许：Home Assistant IP -> MixPad IP TCP 8088
+拒绝：其他 LAN/访客/IoT 客户端 -> MixPad IP TCP 8088
+拒绝：WAN -> MixPad TCP 8088
+```
+
+需要自动发现时，再单独允许 Home Assistant 使用 UDP 10000；否则应阻断跨 VLAN 广播。Orvibo 账号应使用不与其他服务共用的强密码，Home Assistant `.storage`、备份、日志和抓包应作为机密资料保存。
+
+厂商局域网协议使用固定初始密钥、AES-ECB 和 CRC32，不提供 TLS 设备证书或加密消息认证。项目会校验网关 UID、严格限制状态推送并脱敏日志，但这些措施不能替代网络隔离，也不能根治厂商协议的监听和重放风险。当前集成不提供门锁解锁控制，不对未实现的固件命令作安全承诺。详细事项见 [安全策略](SECURITY.md) 和 [修复清单](SECURITY_REMEDIATION_CHECKLIST.md)。
+
 ## 开发
 
 开发环境使用 Python 3.11 或更高版本：

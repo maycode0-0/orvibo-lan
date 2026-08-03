@@ -32,13 +32,47 @@ from .device_profiles import (
 from .exceptions import OrviboLanError, StateStoreError
 from .gateway_manager import GatewayManager
 from .lib.cloud_client import CloudAuthenticationError, CloudClient
+from .lib.packet import CMD_STATE_UPDATE
 from .models import StateSource, StateUpdate
+from .privacy import mask_identifier
 from .state_store import StateStore
 
 _LOGGER = logging.getLogger(__name__)
 
 _MAX_DEVICES = 1000
 _CONTROL_TIMEOUT = 8.0
+_STATE_NUMBER_FIELDS = frozenset(("value1", "value2", "value3", "value4"))
+_STATE_NUMBER_MIN = -(1 << 31)
+_STATE_NUMBER_MAX = (1 << 32) - 1
+_DERIVED_STATE_FIELDS = frozenset(
+    (
+        "battery",
+        "door_state",
+        "emergency_state",
+        "gas_detected",
+        "humidity",
+        "motion_detected",
+        "property_door_open",
+        "smoke_detected",
+        "temperature",
+        "water_leak_detected",
+    )
+)
+_LAN_METADATA_FIELDS = frozenset(
+    (
+        "cmd",
+        "debugInfo",
+        "gatewayUID",
+        "gatewayUid",
+        "serial",
+        "serverRecord",
+        "source",
+        "uid",
+        "uniSerial",
+        "userName",
+        "ver",
+    )
+)
 
 
 class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
@@ -219,9 +253,9 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         for uid, result in zip(self._gateway_ips, results):
             if isinstance(result, BaseException):
                 _LOGGER.debug(
-                    "Gateway %s is not ready: %s",
+                    "Gateway %s is not ready (%s)",
                     self._masked_device_id(uid),
-                    result,
+                    type(result).__name__,
                 )
             else:
                 _LOGGER.debug(
@@ -243,19 +277,38 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
                     await manager.discover()
                 except (OrviboLanError, OSError) as err:
                     if not self._closed:
-                        _LOGGER.debug("Gateway discovery failed: %s", err)
+                        _LOGGER.debug("Gateway discovery failed (%s)", type(err).__name__)
         except asyncio.CancelledError:
             raise
 
-    async def _on_status_update(self, payload: Mapping[str, object]) -> None:
+    async def _on_status_update(
+        self,
+        gateway_uid: str,
+        payload: Mapping[str, object],
+    ) -> None:
         """Merge one cmd=42 update received by the manager-owned reader."""
 
         fields = tuple(sorted(str(key) for key in payload if not str(key).startswith("__")))
+        command = self._payload_command(payload.get("cmd"))
+        if command is None:
+            _LOGGER.debug(
+                "Dropped LAN state from gateway %s with invalid command %r",
+                self._masked_device_id(gateway_uid),
+                command,
+            )
+            return
+        if command != CMD_STATE_UPDATE:
+            _LOGGER.debug(
+                "Validating compatibility LAN state command %r from gateway %s",
+                command,
+                self._masked_device_id(gateway_uid),
+            )
         device_id = self._payload_device_id(payload)
         if device_id is None:
             _LOGGER.debug(
-                "Dropped LAN state without a device ID (cmd=%r, fields=%s)",
-                payload.get("cmd"),
+                "Dropped LAN state from gateway %s without a device ID (cmd=%r, fields=%s)",
+                self._masked_device_id(gateway_uid),
+                command,
                 fields,
             )
             return
@@ -264,7 +317,31 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
             _LOGGER.debug(
                 "Ignoring LAN state for unknown device %s (cmd=%r, fields=%s)",
                 self._masked_device_id(device_id),
-                payload.get("cmd"),
+                command,
+                fields,
+            )
+            return
+
+        device = self.devices.get(device_id)
+        expected_gateway = device.get("uid") if device is not None else None
+        if not isinstance(expected_gateway, str) or expected_gateway != gateway_uid:
+            _LOGGER.debug(
+                "Ignoring LAN state for device %s from wrong gateway %s",
+                self._masked_device_id(device_id),
+                self._masked_device_id(gateway_uid),
+            )
+            return
+        payload_gateway = self._payload_gateway_uid(payload)
+        if payload_gateway is not None and payload_gateway != gateway_uid:
+            _LOGGER.debug(
+                "Ignoring LAN state for device %s with mismatched gateway metadata",
+                self._masked_device_id(device_id),
+            )
+            return
+        if not self._valid_lan_state_payload(payload):
+            _LOGGER.debug(
+                "Rejected malformed LAN state for device %s (fields=%s)",
+                self._masked_device_id(device_id),
                 fields,
             )
             return
@@ -276,6 +353,8 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         }
         values.pop("deviceID", None)
         values.pop("device_id", None)
+        for field in _LAN_METADATA_FIELDS:
+            values.pop(field, None)
         values["deviceId"] = device_id
         self._lan_generation += 1
         try:
@@ -299,7 +378,7 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
             _LOGGER.debug(
                 "LAN state unchanged for device %s (cmd=%r, fields=%s)",
                 self._masked_device_id(device_id),
-                payload.get("cmd"),
+                command,
                 fields,
             )
             return
@@ -308,7 +387,7 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         _LOGGER.debug(
             "Applied LAN state for device %s (cmd=%r, fields=%s)",
             self._masked_device_id(device_id),
-            payload.get("cmd"),
+            command,
             fields,
         )
         if self._notify_task is not None and not self._notify_task.done():
@@ -332,12 +411,54 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         return None
 
     @staticmethod
+    def _payload_command(value: object) -> int | None:
+        """Normalize a protocol command without accepting booleans."""
+
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value.strip())
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _payload_gateway_uid(payload: Mapping[str, object]) -> str | None:
+        for field in ("gatewayUid", "gatewayUID", "uid"):
+            value = payload.get(field)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    @staticmethod
+    def _valid_lan_state_payload(payload: Mapping[str, object]) -> bool:
+        """Reject malformed state values before they reach entity state."""
+
+        properties = payload.get("properties")
+        if properties is not None and not isinstance(properties, Mapping):
+            return False
+        if _DERIVED_STATE_FIELDS.intersection(payload):
+            return False
+        for field in _STATE_NUMBER_FIELDS.intersection(payload):
+            value = payload[field]
+            if isinstance(value, bool) or not isinstance(value, (str, int)):
+                return False
+            try:
+                number = int(str(value).strip())
+            except ValueError:
+                return False
+            if not _STATE_NUMBER_MIN <= number <= _STATE_NUMBER_MAX:
+                return False
+        return True
+
+    @staticmethod
     def _masked_device_id(device_id: str) -> str:
         """Return a stable, privacy-safe identifier for diagnostics."""
 
-        if len(device_id) <= 4:
-            return "***"
-        return f"***{device_id[-4:]}"
+        return mask_identifier(device_id)
 
     async def async_control_device(
         self,
@@ -348,12 +469,16 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
 
         device = self.devices.get(device_id)
         if device is None:
-            raise HomeAssistantError(f"Unknown ORVIBO device: {device_id}")
+            raise HomeAssistantError(f"Unknown ORVIBO device: {self._masked_device_id(device_id)}")
         if device.get("_orvibo_read_only"):
-            raise HomeAssistantError(f"ORVIBO device {device_id} is read-only")
+            raise HomeAssistantError(
+                f"ORVIBO device {self._masked_device_id(device_id)} is read-only"
+            )
         uid_value = device.get("uid")
         if not isinstance(uid_value, str) or not uid_value:
-            raise HomeAssistantError(f"ORVIBO device {device_id} has no gateway")
+            raise HomeAssistantError(
+                f"ORVIBO device {self._masked_device_id(device_id)} has no gateway"
+            )
         manager = self.gateway_manager
         if manager is None or self._closed:
             raise HomeAssistantError("ORVIBO gateway manager is unavailable")
@@ -365,11 +490,18 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
                 timeout=_CONTROL_TIMEOUT,
             )
         except (OrviboLanError, KeyError) as err:
-            raise HomeAssistantError(f"Failed to control ORVIBO device {device_id}") from err
+            raise HomeAssistantError(
+                f"Failed to control ORVIBO device {self._masked_device_id(device_id)}"
+            ) from err
         status = response.get("status")
         if status != 0:
+            status_text = (
+                status if isinstance(status, int) and not isinstance(status, bool) else "invalid"
+            )
             raise HomeAssistantError(
-                f"ORVIBO device {device_id} rejected the command (status={status!r})"
+                "ORVIBO device "
+                f"{self._masked_device_id(device_id)} rejected the command "
+                f"(status={status_text})"
             )
         return True
 

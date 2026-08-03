@@ -78,7 +78,7 @@ class CloudClient:
         family_id: str | None = None,
         *,
         timeout: aiohttp.ClientTimeout | None = None,
-        oauth_method: OAuthMethod = "GET",
+        oauth_method: OAuthMethod = "POST",
     ) -> None:
         if oauth_method not in ("GET", "POST"):
             raise ValueError("oauth_method must be 'GET' or 'POST'")

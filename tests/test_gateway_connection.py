@@ -1,6 +1,7 @@
 """Concurrency and protocol tests for GatewayConnection."""
 
 import asyncio
+import logging
 from typing import Any, cast
 
 import pytest
@@ -107,6 +108,43 @@ async def test_routes_unsolicited_device_updates_to_push_callback(command: int |
     assert len(pushes) == 1
     public_push = {key: value for key, value in pushes[0].items() if not key.startswith("__")}
     assert public_push == {"cmd": command, "deviceId": "door", "value1": 1}
+    await connection.close()
+
+
+@pytest.mark.asyncio
+async def test_ignores_unsolicited_command_without_device_id() -> None:
+    pushes: list[dict[str, Any]] = []
+    connection = GatewayConnection("192.168.1.2", push_callback=pushes.append)
+    _, writer = activate(connection)
+
+    writer.respond({"cmd": 99, "value1": 1})
+    await asyncio.sleep(0)
+
+    assert pushes == []
+    await connection.close()
+
+
+@pytest.mark.asyncio
+async def test_push_logs_mask_host_and_device_id(caplog: pytest.LogCaptureFixture) -> None:
+    pushes: list[dict[str, Any]] = []
+    host = "192.168.1.27"
+    device_id = "private-device-12345678"
+    command = "private-command-value"
+    connection = GatewayConnection(host, push_callback=pushes.append)
+    _, writer = activate(connection)
+    caplog.set_level(
+        logging.DEBUG,
+        logger="custom_components.orvibo_lan.lib.gateway_connection",
+    )
+
+    writer.respond({"cmd": command, "deviceId": device_id, "value1": 1})
+    while not pushes:
+        await asyncio.sleep(0)
+
+    assert host not in caplog.text
+    assert device_id not in caplog.text
+    assert command not in caplog.text
+    assert "192.168.1.*" in caplog.text
     await connection.close()
 
 
@@ -260,11 +298,14 @@ async def test_empty_gateway_uid_is_only_allowed_for_trusted_host(
 
 
 @pytest.mark.asyncio
-async def test_login_rejects_mismatched_uid_even_when_missing_uid_is_allowed() -> None:
+async def test_hello_rejects_mismatched_uid_before_login() -> None:
+    writers: list[FakeWriter] = []
+
     async def open_connection(host: str, port: int) -> tuple[asyncio.StreamReader, FakeWriter]:
         del host, port
         reader = asyncio.StreamReader()
         writer = FakeWriter(reader)
+        writers.append(writer)
 
         async def server() -> None:
             while len(writer.writes) < 1:
@@ -274,31 +315,30 @@ async def test_login_rejects_mismatched_uid_even_when_missing_uid_is_allowed() -
                 {
                     "cmd": hello["cmd"],
                     "serial": hello["serial"],
-                    "uid": "actual",
+                    "uid": "actual-private-gateway",
                     "sessionKey": SESSION_KEY.hex(),
                 },
                 packet_type=PK_TYPE,
                 key=DEFAULT_KEY,
                 session_id=SESSION,
             )
-            while len(writer.writes) < 2:
-                await asyncio.sleep(0)
-            login = parse_packet(writer.writes[1], {SESSION: SESSION_KEY})
-            writer.respond({"cmd": login["cmd"], "serial": login["serial"], "status": 0})
 
         asyncio.create_task(server())
         return reader, writer
 
     connection = GatewayConnection("192.168.1.2", open_connection=open_connection)
-    with pytest.raises(GatewayConnectionError, match="expected UID"):
+    with pytest.raises(GatewayConnectionError, match="expected UID") as raised:
         await connection.connect(
             "user",
             "password",
-            expected_uid="expected",
+            expected_uid="expected-private-gateway",
             allow_missing_uid=True,
         )
     assert not connection.identity_confirmed
     assert not connection.connected
+    assert len(writers[0].writes) == 1
+    assert "actual-private-gateway" not in str(raised.value)
+    assert "expected-private-gateway" not in str(raised.value)
 
 
 @pytest.mark.asyncio

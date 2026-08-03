@@ -8,6 +8,7 @@ import struct
 import time
 from typing import Dict, Optional
 
+from ..privacy import mask_host, mask_identifier
 from .packet import (
     CMD_CONTROL,
     CMD_HEARTBEAT,
@@ -62,10 +63,15 @@ class LanConnection:
                 timeout=timeout,
             )
             self.connected = True
-            _LOGGER.debug(f"TCP 连接成功 {self.host}:{self.port}")
+            _LOGGER.debug("TCP 连接成功 %s:%s", mask_host(self.host), self.port)
             return True
         except Exception as e:
-            _LOGGER.debug(f"TCP 连接失败 {self.host}:{self.port}: {e}")
+            _LOGGER.debug(
+                "TCP 连接失败 %s:%s (%s)",
+                mask_host(self.host),
+                self.port,
+                type(e).__name__,
+            )
             return False
 
     async def close(self):
@@ -93,7 +99,11 @@ class LanConnection:
                 self.writer.close()
                 await self.writer.wait_closed()
             except Exception as e:
-                _LOGGER.debug(f"关闭 writer 异常 {self.host}: {e}")
+                _LOGGER.debug(
+                    "关闭 writer 异常 %s (%s)",
+                    mask_host(self.host),
+                    type(e).__name__,
+                )
             finally:
                 self.writer = None
 
@@ -107,7 +117,7 @@ class LanConnection:
 
         # 4. 标记断开
         self.connected = False
-        _LOGGER.debug(f"连接已关闭 {self.host}")
+        _LOGGER.debug("连接已关闭 %s", mask_host(self.host))
 
     async def hello(self) -> bool:
         """发送 Hello 包，获取 session key。"""
@@ -141,11 +151,11 @@ class LanConnection:
         if parsed is None:
             return False
 
-        _LOGGER.debug("Hello response received from %s", self.host)
+        _LOGGER.debug("Hello response received from %s", mask_host(self.host))
         sid = raw[10:42]
         raw_key = parsed.get("sessionKey") or parsed.get("key")
         if not raw_key:
-            _LOGGER.debug(f"Hello 回复无 session key: {parsed}")
+            _LOGGER.debug("Hello 回复无 session key")
             return False
 
         # key 可能是 hex 或纯文本
@@ -194,13 +204,12 @@ class LanConnection:
         parsed = parse_packet(raw, self._keys)
         if parsed is None:
             return False
-        _LOGGER.debug(f"Login 回复: {parsed}")
         status = parsed.get("status")
         if status == 0:
-            _LOGGER.debug(f"Login OK (网关 {self.host})")
+            _LOGGER.debug("Login OK (网关 %s)", mask_host(self.host))
             return True
         else:
-            _LOGGER.debug(f"Login 失败: status={status} (网关 {self.host})")
+            _LOGGER.debug("Login 失败 (网关 %s)", mask_host(self.host))
             return False
 
     async def connect_and_login(
@@ -243,7 +252,7 @@ class LanConnection:
                     writer.write(build_packet(DK_TYPE, session_key, session_id, payload))
                     await writer.drain()
                 except Exception as e:
-                    _LOGGER.debug(f"心跳异常: {e}")
+                    _LOGGER.debug("心跳异常 (%s)", type(e).__name__)
                     break
 
         self._heartbeat_task = asyncio.create_task(_hb_loop())
@@ -258,7 +267,7 @@ class LanConnection:
             return
 
         async def _listen_loop():
-            _LOGGER.debug(f"监听循环已启动 {self.host}")
+            _LOGGER.debug("监听循环已启动 %s", mask_host(self.host))
             while self.connected:
                 try:
                     raw = await self._read_packet(timeout=60.0)
@@ -270,17 +279,24 @@ class LanConnection:
                         continue
                     recv_cmd = result.get("cmd")
                     if recv_cmd == CMD_STATE_UPDATE:
-                        _LOGGER.debug(f"收到 cmd=42 状态推送: {result.get('deviceId', '?')}")
+                        _LOGGER.debug(
+                            "收到 cmd=42 状态推送: %s",
+                            mask_identifier(result.get("deviceId", "")),
+                        )
                         callback(result)
                 except asyncio.CancelledError:
-                    _LOGGER.debug(f"监听循环被取消 {self.host}")
+                    _LOGGER.debug("监听循环被取消 %s", mask_host(self.host))
                     break
                 except Exception as e:
-                    _LOGGER.debug(f"监听循环异常 {self.host}: {e}")
+                    _LOGGER.debug(
+                        "监听循环异常 %s (%s)",
+                        mask_host(self.host),
+                        type(e).__name__,
+                    )
                     break
 
             self.connected = False
-            _LOGGER.debug(f"监听循环结束 {self.host}")
+            _LOGGER.debug("监听循环结束 %s", mask_host(self.host))
 
         self._listen_task = asyncio.create_task(_listen_loop())
 
@@ -309,9 +325,9 @@ class LanConnection:
 
         _LOGGER.debug(
             "Sending control command to %s: cmd=%s device=%s",
-            self.host,
+            mask_host(self.host),
             payload.get("cmd"),
-            payload.get("deviceId"),
+            mask_identifier(payload.get("deviceId", "")),
         )
 
         if "cmd" not in payload:
@@ -376,5 +392,5 @@ class LanConnection:
             _LOGGER.debug("读包不完整")
             return None
         except Exception as e:
-            _LOGGER.debug(f"读包异常: {e}")
+            _LOGGER.debug("读包异常 (%s)", type(e).__name__)
             return None

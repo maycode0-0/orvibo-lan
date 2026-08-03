@@ -203,7 +203,7 @@ class OrviboLanConfigFlow(  # type: ignore[call-arg]
         await self.async_set_unique_id(config_entry_unique_id(self._user_id, family_id))
         self._abort_if_unique_id_configured()
         return self.async_create_entry(
-            title=f"{self._username} - {self._family_name}",
+            title=self._family_name or "Orvibo LAN",
             data={
                 CONF_USERNAME: self._username,
                 CONF_PASSWORD: self._password,

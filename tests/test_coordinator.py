@@ -54,13 +54,24 @@ async def test_cloud_and_lan_updates_share_state_store() -> None:
 
     await coordinator._refresh_devices_from_cloud()
     await coordinator._on_status_update(
-        {"deviceId": "device-1", "value1": 0, "properties": {"level": 5}}
+        "gateway-1",
+        {
+            "cmd": 42,
+            "deviceId": "device-1",
+            "uid": "gateway-1",
+            "userName": "private-user",
+            "value1": 0,
+            "properties": {"level": 5},
+        },
     )
+    await coordinator._notify_task
 
     state = coordinator.get_device_state("device-1")
     assert state is not None
     assert state["value1"] == 0
     assert state["properties"] == {"level": 5}
+    assert "uid" not in state
+    assert "userName" not in state
     assert coordinator._state_store is not None
     snapshot = coordinator._state_store.snapshot("device-1")
     assert snapshot.values["value1"] == 0
@@ -92,7 +103,9 @@ async def test_lan_push_notifies_listeners_once_after_debounce() -> None:
         notifications += 1
 
     coordinator.async_add_listener(listener)
-    await coordinator._on_status_update({"deviceId": "device-1", "value1": 0})
+    await coordinator._on_status_update(
+        "gateway-1", {"cmd": 42, "deviceId": "device-1", "value1": 0}
+    )
     await coordinator._notify_task
 
     assert notifications == 1
@@ -105,7 +118,9 @@ async def test_lan_push_normalizes_firmware_device_id_variants(id_field: str) ->
     coordinator.cloud_client.fetch_devices = AsyncMock(return_value=cloud_result())
     await coordinator._refresh_devices_from_cloud()
 
-    await coordinator._on_status_update({id_field: " device-1 ", "value1": 0})
+    await coordinator._on_status_update(
+        "gateway-1", {"cmd": "42", id_field: " device-1 ", "value1": 0}
+    )
     await coordinator._notify_task
 
     state = coordinator.get_device_state("device-1")
@@ -122,7 +137,7 @@ async def test_lan_push_without_supported_device_id_is_ignored() -> None:
     coordinator.cloud_client.fetch_devices = AsyncMock(return_value=cloud_result())
     await coordinator._refresh_devices_from_cloud()
 
-    await coordinator._on_status_update({"device": "device-1", "value1": 0})
+    await coordinator._on_status_update("gateway-1", {"cmd": 42, "device": "device-1", "value1": 0})
 
     assert coordinator._notify_task is None
     state = coordinator.get_device_state("device-1")
@@ -135,12 +150,62 @@ async def test_older_cloud_snapshot_does_not_roll_back_lan() -> None:
     coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
     coordinator.cloud_client.fetch_devices = AsyncMock(return_value=cloud_result())
     await coordinator._refresh_devices_from_cloud()
-    await coordinator._on_status_update({"deviceId": "device-1", "value1": 0})
+    await coordinator._on_status_update(
+        "gateway-1", {"cmd": 42, "deviceId": "device-1", "value1": 0}
+    )
+    await coordinator._notify_task
 
     coordinator.cloud_client.fetch_devices = AsyncMock(
         return_value=cloud_result(status={"deviceId": "device-1", "value1": 1})
     )
     await coordinator._refresh_devices_from_cloud()
+
+    state = coordinator.get_device_state("device-1")
+    assert state is not None
+    assert state["value1"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gateway_uid", "payload"),
+    [
+        ("wrong-gateway", {"cmd": 42, "deviceId": "device-1", "value1": 0}),
+        ("gateway-1", {"cmd": True, "deviceId": "device-1", "value1": 0}),
+        ("gateway-1", {"cmd": 42, "deviceId": "device-1", "value1": {"bad": 1}}),
+        ("gateway-1", {"cmd": 42, "deviceId": "device-1", "properties": []}),
+        ("gateway-1", {"cmd": 42, "deviceId": "device-1", "door_state": True}),
+        (
+            "gateway-1",
+            {"cmd": 42, "deviceId": "device-1", "uid": "wrong-gateway", "value1": 0},
+        ),
+    ],
+)
+async def test_lan_push_rejects_untrusted_source_or_malformed_state(
+    gateway_uid: str,
+    payload: dict[str, object],
+) -> None:
+    coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=cloud_result())
+    await coordinator._refresh_devices_from_cloud()
+
+    await coordinator._on_status_update(gateway_uid, payload)
+
+    assert coordinator._notify_task is None
+    state = coordinator.get_device_state("device-1")
+    assert state is not None
+    assert state["value1"] == 1
+
+
+@pytest.mark.asyncio
+async def test_validated_compatibility_command_preserves_firmware_support() -> None:
+    coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=cloud_result())
+    await coordinator._refresh_devices_from_cloud()
+
+    await coordinator._on_status_update(
+        "gateway-1", {"cmd": 99, "deviceId": "device-1", "value1": 0}
+    )
+    await coordinator._notify_task
 
     state = coordinator.get_device_state("device-1")
     assert state is not None

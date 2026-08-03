@@ -24,6 +24,7 @@ class FakeConnection:
         self.fail_send = fail_send
         self.closed = 0
         self.allow_missing_uid = False
+        self.push_callback = None
 
     async def connect(
         self,
@@ -48,6 +49,9 @@ class FakeConnection:
     async def close(self) -> None:
         self.closed += 1
         self.connected = False
+
+    def set_push_callback(self, callback) -> None:
+        self.push_callback = callback
 
 
 class FakeDiscovery:
@@ -166,3 +170,24 @@ async def test_is_connected_tracks_managed_connection() -> None:
     assert manager.is_connected("uid")
     await manager.close()
     assert not manager.is_connected("uid")
+
+
+@pytest.mark.asyncio
+async def test_push_callback_is_bound_to_gateway_uid() -> None:
+    pushes: list[tuple[str, object]] = []
+    manager = GatewayManager(
+        "user",
+        "password",
+        {"gateway-1": "192.168.1.2"},
+        connection_factory=FakeConnection,
+        push_callback=lambda uid, payload: pushes.append((uid, payload)),
+    )
+
+    connection = await manager.ensure("gateway-1")
+    assert isinstance(connection, FakeConnection)
+    assert connection.push_callback is not None
+    payload = {"cmd": 42, "deviceId": "device-1"}
+    connection.push_callback(payload)
+
+    assert pushes == [("gateway-1", payload)]
+    await manager.close()
