@@ -125,33 +125,54 @@ class CloudClient:
             "type": "0",
             "password": password_digest,
         }
-        if self._oauth_method == "GET":
-            payload = await self._request_json(
-                "GET",
-                "/getOauthToken",
-                "OAuth login",
-                params=credentials,
-            )
-        else:
-            payload = await self._request_json(
-                "POST",
-                "/getOauthToken",
-                "OAuth login",
-                data=credentials,
-            )
+        methods: tuple[OAuthMethod, ...] = (
+            ("GET",) if self._oauth_method == "GET" else ("POST", "GET")
+        )
+        for method in methods:
+            try:
+                payload = await self._request_json(
+                    method,
+                    "/getOauthToken",
+                    "OAuth login",
+                    params=credentials if method == "GET" else None,
+                    data=credentials if method == "POST" else None,
+                )
+                token, user_id = self._parse_oauth_credentials(payload)
+            except CloudClientError as err:
+                if method != "POST" or not self._should_retry_oauth_with_get(err):
+                    raise
+                _LOGGER.debug(
+                    "OAuth POST response was incompatible (%s); retrying legacy GET",
+                    type(err).__name__,
+                )
+                continue
+            self._oauth_method = method
+            break
+        self.access_token = token
+        self.user_id = user_id
+        await self.fetch_family_list()
+
+    @classmethod
+    def _parse_oauth_credentials(
+        cls,
+        payload: Mapping[str, object],
+    ) -> tuple[str, str]:
         if payload.get("status") != 0 and payload.get("code") != 0:
             raise CloudAuthenticationError("OAuth login was rejected")
-
-        data = self._require_mapping(payload.get("data"), "OAuth data")
+        data = cls._require_mapping(payload.get("data"), "OAuth data")
         token = data.get("access_token")
         user_id = data.get("user_id")
         if not isinstance(token, str) or not token:
             raise CloudSchemaError("OAuth data has no access token")
         if not isinstance(user_id, str) or not user_id:
             raise CloudSchemaError("OAuth data has no user ID")
-        self.access_token = token
-        self.user_id = user_id
-        await self.fetch_family_list()
+        return token, user_id
+
+    @staticmethod
+    def _should_retry_oauth_with_get(error: CloudClientError) -> bool:
+        if isinstance(error, CloudHttpError):
+            return error.status in {400, 404, 405, 415, 422}
+        return isinstance(error, (CloudJsonError, CloudSchemaError))
 
     async def fetch_family_list(self) -> ObjectList:
         """Fetch families and select the first when none is configured."""

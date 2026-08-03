@@ -123,7 +123,11 @@ class OrviboLanConfigFlow(  # type: ignore[call-arg]
                     await client.login()
                 except CloudAuthenticationError:
                     errors["base"] = "auth_failed"
-                except CloudClientError:
+                except CloudClientError as err:
+                    _LOGGER.debug(
+                        "ORVIBO cloud setup failed (%s)",
+                        type(err).__name__,
+                    )
                     errors["base"] = "cannot_connect"
                 else:
                     self._username = username
