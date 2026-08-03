@@ -275,6 +275,85 @@ async def test_hello_uid_confirms_gateway_when_login_omits_uid() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "expected_status"),
+    [
+        (7, "7"),
+        ("private-status", "invalid"),
+        (True, "invalid"),
+        (None, "invalid"),
+    ],
+)
+async def test_login_rejection_logs_only_safe_status(
+    status: object,
+    expected_status: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    host = "192.168.1.27"
+    username = "private-account@example.com"
+    password = "private-password"
+    response_secret = "private-response-detail"
+
+    async def open_connection(host: str, port: int) -> tuple[asyncio.StreamReader, FakeWriter]:
+        del host, port
+        reader = asyncio.StreamReader()
+        writer = FakeWriter(reader)
+
+        async def server() -> None:
+            while len(writer.writes) < 1:
+                await asyncio.sleep(0)
+            hello = parse_packet(writer.writes[0], {})
+            writer.respond(
+                {
+                    "cmd": hello["cmd"],
+                    "serial": hello["serial"],
+                    "sessionKey": SESSION_KEY.hex(),
+                },
+                packet_type=PK_TYPE,
+                key=DEFAULT_KEY,
+                session_id=SESSION,
+            )
+            while len(writer.writes) < 2:
+                await asyncio.sleep(0)
+            login = parse_packet(writer.writes[1], {SESSION: SESSION_KEY})
+            writer.respond(
+                {
+                    "cmd": login["cmd"],
+                    "serial": login["serial"],
+                    "status": status,
+                    "message": response_secret,
+                }
+            )
+
+        asyncio.create_task(server())
+        return reader, writer
+
+    connection = GatewayConnection(host, open_connection=open_connection)
+    caplog.set_level(
+        logging.DEBUG,
+        logger="custom_components.orvibo_lan.lib.gateway_connection",
+    )
+
+    with pytest.raises(GatewayConnectionError, match="login was rejected") as raised:
+        await connection.connect(
+            username,
+            password,
+            expected_uid="expected",
+            allow_missing_uid=True,
+        )
+
+    assert raised.value.reason == "login_rejected"
+    assert f"status={expected_status}" in caplog.text
+    assert host not in caplog.text
+    assert "192.168.1.*" in caplog.text
+    assert username not in caplog.text
+    assert password not in caplog.text
+    assert response_secret not in caplog.text
+    if isinstance(status, str):
+        assert status not in caplog.text
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("allow_missing_uid", [False, True])
 async def test_empty_gateway_uid_is_only_allowed_for_trusted_host(
     allow_missing_uid: bool,
