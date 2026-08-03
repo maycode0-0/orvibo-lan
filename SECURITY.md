@@ -6,11 +6,13 @@
 
 该集成通过 Orvibo 云端获取设备拓扑，并在局域网连接 MixPad TCP 8088。不要把 8088 暴露到公网，也不要关闭 HTTPS 证书校验。开放 Home Assistant 8123 不等于开放 MixPad 8088，但必须检查路由器端口转发、DMZ、UPnP/NAT-PMP 和 IPv6 入站规则。
 
+云端 OAuth 登录优先使用 POST 表单。部分厂商部署只在旧版 GET 请求中返回兼容的令牌结构，因此客户端会在 POST 收到明确不兼容的 HTTP、JSON 或结构响应后回退 GET。该厂商接口要求 GET 查询串携带账号和 MD5 密码摘要，集成不会记录请求 URL 或凭据，但反向代理、抓包和上游服务器日志仍应按机密资料保护。
+
 推荐将 MixPad 放入 IoT VLAN，只允许 Home Assistant 主机访问 MixPad TCP 8088。需要自动发现时，再单独允许必要的 UDP 10000 通信。普通终端、访客 Wi-Fi、其他 IoT 设备和 WAN 不应访问 8088。
 
 MixPad 局域网协议由厂商定义，使用固定初始密钥、AES-ECB 和 CRC32，没有 TLS 设备证书或加密消息认证。客户端会尽早校验已知网关 UID、限制状态推送来源并脱敏日志，但无法单方面替换固件协议。UID 字符串比较不等价于加密身份认证，网络隔离仍是必要措施。
 
-当前集成不提供门锁解锁控制。未经代码和实机验证的固件命令不属于项目能力或安全承诺。完整修复进度见 [SECURITY_REMEDIATION_CHECKLIST.md](SECURITY_REMEDIATION_CHECKLIST.md)。
+当前集成不提供门锁解锁控制。未经代码和实机验证的固件命令不属于项目能力或安全承诺。已发布的安全变化记录在 [CHANGELOG.md](CHANGELOG.md)。
 
 CI 使用的第三方 Action 固定到已核验的 commit SHA，发布写权限只授予发布任务。
 
