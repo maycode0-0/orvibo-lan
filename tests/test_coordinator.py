@@ -264,4 +264,6 @@ def test_availability_uses_gateway_for_lan_and_cloud_for_read_only() -> None:
     coordinator.last_update_success = False
     assert not coordinator.is_device_available("cloud")
     coordinator.device_states["lan"]["online"] = False
+    assert coordinator.is_device_available("lan")
+    coordinator.gateway_manager = SimpleNamespace(is_connected=lambda uid: False)
     assert not coordinator.is_device_available("lan")
