@@ -7,8 +7,9 @@ Home Assistant ConfigEntry
   |
   v
 OrviboLanCoordinator ---- CloudClient ---- HTTPS ---- Orvibo 云端
-  |                              |
-  |                              `-- 家庭、房间、设备、状态、网关地址
+  |                         |             `-- 家庭、房间、设备、状态、网关地址
+  |                         `-- CloudPushClient ---- TLS TCP 10002
+  |                                                   `-- 门锁 cmd=42 推送
   v
 GatewayManager ---- GatewayConnection ---- TCP 8088 ---- MixPad
   |                    |-- 单一 Reader 循环
@@ -18,7 +19,7 @@ GatewayManager ---- GatewayConnection ---- TCP 8088 ---- MixPad
 StateStore ---- 不可变快照与 generation ---- HA 实体平台
 ```
 
-云端负责引导拓扑和属性型只读状态。MixPad 局域网连接负责 Zigbee 子设备控制与实时状态。首次加载必须先取得云端拓扑，因此当前不能在没有任何有效拓扑缓存的情况下完全离线启动。
+云端负责引导拓扑和属性型只读状态，`CloudPushClient` 为属性型 WiFi 门锁维持独立的 TLS TCP 10002 长连接。MixPad 局域网连接负责 Zigbee 子设备控制与实时状态。首次加载必须先取得云端拓扑，因此当前不能在没有任何有效拓扑缓存的情况下完全离线启动。
 
 ## 模块职责
 
@@ -27,6 +28,7 @@ StateStore ---- 不可变快照与 generation ---- HA 实体平台
 | `__init__.py`                       | ConfigEntry 生命周期、平台加载、服务注册和区域分配  |
 | `config_flow.py`、`selection.py`    | 登录、家庭选择、设备选择、唯一 ID 和配置更新        |
 | `lib/cloud_client.py`               | 云端认证、家庭读取、`readtable`、超时与错误分类     |
+| `lib/cloud_push.py`                 | 10002 双向 TLS、证书固定、门锁事件解析、重连和心跳 |
 | `lib/protocol.py`、`models.py`      | 严格包模型、长度/CRC/加密校验和不可变值             |
 | `lib/discovery.py`                  | UDP 网关候选发现、地址过滤和 UID 校验               |
 | `lib/gateway_connection.py`         | TCP 会话、单 Reader、心跳、请求路由、推送分发和关闭 |
@@ -43,10 +45,11 @@ StateStore ---- 不可变快照与 generation ---- HA 实体平台
 
 1. 配置流程认证账号，选择家庭和设备，创建版本为 3 的 ConfigEntry。
 2. 协调器通过 `CloudClient` 获取设备、状态、房间、网关和局域网地址。
-3. `GatewayManager` 按 UID 建立或复用 `GatewayConnection`。
-4. 网关连接完成 Hello 与 Login，启动唯一 Reader 和心跳任务。
-5. 实体平台根据集中式 Profile 创建实体并订阅状态快照。
-6. 配置项卸载时先停止协调器任务和监听，再关闭全部连接，最后卸载平台。
+3. 协调器从 `readtable.data.account` 提取当前用户的临时 10002 凭据，按需启动 `CloudPushClient`。
+4. `GatewayManager` 按 UID 建立或复用 `GatewayConnection`。
+5. 网关连接完成 Hello 与 Login，启动唯一 Reader 和心跳任务；门锁连接完成双向 TLS、Hello 和 Login 后持续接收事件。
+6. 实体平台根据集中式 Profile 创建实体并订阅状态快照。
+7. 配置项卸载时先停止协调器任务和监听，再关闭云端与网关连接，最后卸载平台。
 
 Options Flow 修改设备选择后会触发配置项重载。配置更新和再认证过程保持同一账号/家庭边界，避免不同家庭共享唯一 ID。
 
@@ -54,7 +57,7 @@ Options Flow 修改设备选择后会触发配置项重载。配置更新和再�
 
 每个 `GatewayConnection` 只有一个读取循环。请求在写入 socket 前注册待响应 Future，Reader 按 `serial` 或 `uniSerial` 完成对应 Future；`cmd=42` 进入推送回调。缺少可靠关联字段的请求采用单飞控制，避免响应误配。
 
-`StateStore` 为更新记录来源和 generation。LAN 推送优先于较旧的云端快照；云端刷新会对账设备和网关集合，移除失效状态，并关闭已删除或地址变化的连接。连续 LAN 推送在短暂防抖窗口内合并后只发布一次更新。
+`StateStore` 为更新记录来源和 generation。LAN 推送优先于云端快照；云端快照和 10002 门锁推送共享云端来源，并以接收时序避免在途旧快照回滚实时事件。门锁事件还按服务器 `updateTimeSec` 丢弃旧事件；云端刷新会对账设备和网关集合，移除失效状态并关闭已删除或地址变化的连接。LAN 推送保留短暂防抖，门锁推送验证后立即通知实体。
 
 ## 可用性
 
@@ -68,8 +71,9 @@ Options Flow 修改设备选择后会触发配置项重载。配置更新和再�
 - 云端 JSON、UDP 广播和 TCP 帧都按不可信输入处理。
 - UDP 候选必须来自私有 IPv4 地址，并匹配云端已知网关 UID。
 - TCP 包必须通过魔数、长度、类型、Session、CRC、AES 和 JSON 对象校验。
+- 10002 连接使用双向 TLS，客户端证书只用于厂商协议认证，服务端证书通过固定 SHA-256 指纹校验后才发送账号凭据。
 - 日志不得包含账号、密码、Token、Session Key 或完整控制 payload。
-- TCP 8088 只应暴露在受信任局域网内。
+- TCP 8088 只应暴露在受信任局域网内；TCP 10002 仅需允许 Home Assistant 出站访问 Orvibo 云端。
 
 ## 发布边界
 

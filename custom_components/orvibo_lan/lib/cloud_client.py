@@ -96,6 +96,8 @@ class CloudClient:
         self.user_id: str | None = None
         self.family_list: ObjectList = []
         self.family_name = ""
+        self.binary_username = ""
+        self.binary_password = ""
 
     @property
     def username(self) -> str:
@@ -266,6 +268,10 @@ class CloudClient:
         )
         self._raise_for_api_error(payload, "device list", require_code=True)
         data = self._require_mapping(payload.get("data"), "device list data")
+        self.binary_username, self.binary_password = self._parse_binary_credentials(
+            data,
+            user_id,
+        )
         devices = self._require_object_list(data.get("device", []), "devices")
         status_items = self._require_object_list(
             data.get("deviceStatus", []),
@@ -280,6 +286,30 @@ class CloudClient:
                 raise CloudSchemaError("device status has no valid deviceId")
             statuses[str(device_id)] = item
         return devices, statuses, gateways, rooms
+
+    @classmethod
+    def _parse_binary_credentials(
+        cls,
+        data: Mapping[str, object],
+        user_id: str,
+    ) -> tuple[str, str]:
+        """Extract the transient port-10002 credentials without logging them."""
+
+        raw_accounts = data.get("account", [])
+        if isinstance(raw_accounts, Mapping):
+            accounts = [raw_accounts]
+        elif isinstance(raw_accounts, list):
+            accounts = raw_accounts
+        else:
+            return "", ""
+        for raw_account in accounts:
+            if not isinstance(raw_account, Mapping):
+                continue
+            account_user_id = str(raw_account.get("userId") or "").strip()
+            password = str(raw_account.get("password") or "").strip()
+            if account_user_id == user_id and password:
+                return account_user_id, password
+        return "", ""
 
     async def _request_json(
         self,

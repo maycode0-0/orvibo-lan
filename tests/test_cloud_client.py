@@ -287,6 +287,29 @@ class CloudClientErrorTests(unittest.IsolatedAsyncioTestCase):
 
 
 class CloudClientDeviceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_fetch_devices_extracts_matching_binary_credentials(self) -> None:
+        payload = {
+            "code": 0,
+            "data": {
+                "account": [
+                    {"userId": "other-user", "password": "wrong-password"},
+                    {"userId": "user", "password": "transient-password"},
+                ],
+                "device": [],
+                "deviceStatus": [],
+                "gateway": [],
+                "room": [],
+            },
+        }
+        client = CloudClient(FakeSession([FakeResponse(payload)]), "a", "p")
+        client.access_token = "token"
+        client.user_id = "user"
+
+        await client.fetch_devices()
+
+        self.assertEqual(client.binary_username, "user")
+        self.assertEqual(client.binary_password, "transient-password")
+
     async def test_fetch_devices_reauthenticates_once_after_api_rejection(self) -> None:
         session = FakeSession(
             [

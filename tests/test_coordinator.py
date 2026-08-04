@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -268,6 +269,240 @@ async def test_lan_door_push_does_not_treat_device_uid_as_gateway_uid() -> None:
     state = coordinator.get_device_state("device-1")
     assert state is not None
     assert state["door_state"] is False
+
+
+@pytest.mark.asyncio
+async def test_cloud_lock_push_updates_property_door_state_immediately() -> None:
+    coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
+    result = cloud_result(
+        status={
+            "deviceId": "device-1",
+            "properties": {"door_status": "closed"},
+        }
+    )
+    result[0][0].update(
+        {
+            "deviceType": 522,
+            "uid": "lock-uid",
+            "_orvibo_read_only": True,
+        }
+    )
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=result)
+    await coordinator._refresh_devices_from_cloud()
+    notifications = 0
+
+    def listener() -> None:
+        nonlocal notifications
+        notifications += 1
+
+    coordinator.async_add_listener(listener)
+    await coordinator._on_cloud_lock_event(
+        {
+            "cmd": 42,
+            "deviceId": "device-1",
+            "uid": "different-event-uid",
+            "properties": {"door_status": "open", "ssid": "private-network"},
+            "updateTimeSec": 1785419851,
+        }
+    )
+
+    state = coordinator.get_device_state("device-1")
+    assert state is not None
+    assert state["properties"] == {"door_status": "open"}
+    assert state["property_door_open"] is True
+    assert notifications == 1
+
+
+@pytest.mark.asyncio
+async def test_cloud_snapshot_started_before_push_cannot_roll_back_door_state() -> None:
+    coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
+    initial = cloud_result(
+        status={
+            "deviceId": "device-1",
+            "properties": {"door_status": "closed"},
+        }
+    )
+    initial[0][0].update({"deviceType": 522, "uid": "lock-uid"})
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=initial)
+    await coordinator._refresh_devices_from_cloud()
+
+    stale = cloud_result(
+        status={
+            "deviceId": "device-1",
+            "properties": {"door_status": "closed"},
+        }
+    )
+    stale[0][0].update({"deviceType": 522, "uid": "lock-uid"})
+    refresh_started = asyncio.Event()
+    release_refresh = asyncio.Event()
+
+    async def fetch_stale_snapshot():
+        refresh_started.set()
+        await release_refresh.wait()
+        return stale
+
+    coordinator.cloud_client.fetch_devices = fetch_stale_snapshot
+
+    with patch(
+        "custom_components.orvibo_lan.coordinator.monotonic",
+        side_effect=[1_000_000_000.0, 1_000_000_010.0],
+    ):
+        refresh_task = coordinator.hass.async_create_background_task(
+            coordinator._refresh_devices_from_cloud(),
+            name="stale_cloud_refresh",
+        )
+        await refresh_started.wait()
+        await coordinator._on_cloud_lock_event(
+            {
+                "cmd": 42,
+                "deviceId": "device-1",
+                "properties": {"door_status": "open"},
+            }
+        )
+        release_refresh.set()
+        await refresh_task
+
+    state = coordinator.get_device_state("device-1")
+    assert state is not None
+    assert state["property_door_open"] is True
+
+
+@pytest.mark.asyncio
+async def test_older_cloud_lock_event_cannot_roll_back_newer_event() -> None:
+    coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
+    result = cloud_result(
+        status={
+            "deviceId": "device-1",
+            "properties": {"door_status": "closed"},
+        }
+    )
+    result[0][0].update({"deviceType": 522, "uid": "lock-uid"})
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=result)
+    await coordinator._refresh_devices_from_cloud()
+
+    await coordinator._on_cloud_lock_event(
+        {
+            "cmd": 42,
+            "deviceId": "device-1",
+            "properties": {"door_status": "open"},
+            "updateTimeSec": 200,
+        }
+    )
+    await coordinator._on_cloud_lock_event(
+        {
+            "cmd": 42,
+            "deviceId": "device-1",
+            "properties": {"door_status": "closed"},
+            "updateTimeSec": 100,
+        }
+    )
+
+    state = coordinator.get_device_state("device-1")
+    assert state is not None
+    assert state["property_door_open"] is True
+
+
+@pytest.mark.asyncio
+async def test_older_cloud_snapshot_properties_cannot_roll_back_push() -> None:
+    coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
+    initial = cloud_result(
+        status={
+            "deviceId": "device-1",
+            "updateTimeSec": 100,
+            "properties": {"door_status": "closed"},
+        }
+    )
+    initial[0][0].update({"deviceType": 522, "uid": "lock-uid"})
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=initial)
+    await coordinator._refresh_devices_from_cloud()
+    await coordinator._on_cloud_lock_event(
+        {
+            "cmd": 42,
+            "deviceId": "device-1",
+            "properties": {"door_status": "open"},
+            "updateTimeSec": 200,
+        }
+    )
+
+    stale = cloud_result(
+        status={
+            "deviceId": "device-1",
+            "updateTimeSec": 150,
+            "properties": {"door_status": "closed"},
+        }
+    )
+    stale[0][0].update({"deviceType": 522, "uid": "lock-uid"})
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=stale)
+    await coordinator._refresh_devices_from_cloud()
+
+    state = coordinator.get_device_state("device-1")
+    assert state is not None
+    assert state["property_door_open"] is True
+
+
+@pytest.mark.asyncio
+async def test_cloud_lock_event_does_not_fallback_when_device_id_is_unknown() -> None:
+    coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
+    result = cloud_result(
+        status={
+            "deviceId": "device-1",
+            "properties": {"door_status": "closed"},
+        }
+    )
+    result[0][0].update({"deviceType": 522, "uid": "lock-uid"})
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=result)
+    await coordinator._refresh_devices_from_cloud()
+
+    await coordinator._on_cloud_lock_event(
+        {
+            "cmd": 42,
+            "deviceId": "unknown-device",
+            "uid": "lock-uid",
+            "properties": {"door_status": "open"},
+        }
+    )
+
+    state = coordinator.get_device_state("device-1")
+    assert state is not None
+    assert state["property_door_open"] is False
+
+
+@pytest.mark.asyncio
+async def test_cloud_push_listener_starts_and_is_closed_with_coordinator() -> None:
+    coordinator = OrviboLanCoordinator(
+        FakeHass(),
+        MagicMock(),
+        "user",
+        "password",
+        family_id="family-1",
+    )
+    result = cloud_result(
+        status={
+            "deviceId": "device-1",
+            "properties": {"door_status": "closed"},
+        }
+    )
+    result[0][0].update({"deviceType": 522, "uid": "lock-uid"})
+    coordinator.cloud_client.binary_username = "binary-user"
+    coordinator.cloud_client.binary_password = "transient-password"
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=result)
+    fake_push = SimpleNamespace(
+        run=AsyncMock(),
+        close=AsyncMock(),
+        async_update_credentials=AsyncMock(),
+    )
+
+    with patch(
+        "custom_components.orvibo_lan.coordinator.CloudPushClient",
+        return_value=fake_push,
+    ) as push_class:
+        await coordinator._refresh_devices_from_cloud()
+        await asyncio.sleep(0)
+        push_class.assert_called_once()
+        fake_push.run.assert_awaited_once()
+
+    await coordinator.async_cleanup()
+    fake_push.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 # Orvibo LAN
 
-Orvibo LAN 是一个 Home Assistant 自定义集成。它通过 Orvibo 云端获取家庭、房间、设备和网关拓扑，并通过局域网内 MixPad 的 TCP 8088 接口控制 Zigbee 子设备。
+Orvibo LAN 是一个 Home Assistant 自定义集成。它通过 Orvibo 云端获取家庭、房间、设备和网关拓扑，并通过局域网内 MixPad 的 TCP 8088 接口控制 Zigbee 子设备。属性型 WiFi 门锁会额外建立云端 TCP 10002 长连接，持续接收门状态推送。
 
 > 本地控制仅适用于可通过 MixPad 网关访问的 Zigbee 子设备。WiFi、BLE、红外、摄像头和其他直连设备不在当前 LAN 控制范围内。
 
@@ -12,6 +12,7 @@ Orvibo LAN 是一个 Home Assistant 自定义集成。它通过 Orvibo 云端获
 - 通过 TCP 8088 完成 Hello、Login、控制、心跳和状态接收。
 - 使用单一 TCP 读取循环按序列号路由响应，避免控制回复与状态推送相互抢读。
 - 接收 `cmd=42` 局域网状态推送，并用云端快照补充属性型只读设备。
+- 使用云端 TCP 10002 的双向 TLS 长连接接收 WiFi 门锁 `cmd=42` 属性状态，并在 Home Assistant 中实时更新。
 - 将 App 房间映射到 Home Assistant 区域。
 - 提供 `orvibo_lan.refresh_devices` 服务手动刷新设备拓扑。
 
@@ -19,6 +20,7 @@ Orvibo LAN 是一个 Home Assistant 自定义集成。它通过 Orvibo 云端获
 
 - Home Assistant 2024.1.0 或更高版本。
 - Home Assistant 能访问 Orvibo 云端 HTTPS 接口。
+- Home Assistant 能访问 Orvibo 云端 TCP 10002，用于 WiFi 门锁实时状态推送。
 - Home Assistant 与 MixPad 位于可互通的局域网，且 TCP 8088 可达。
 - Orvibo 账号中至少存在一个可识别的家庭和 MixPad 网关。
 
@@ -80,6 +82,7 @@ Orvibo LAN 是一个 Home Assistant 自定义集成。它通过 Orvibo 云端获
 Home Assistant
   |-- HTTPS --> Orvibo 云端
   |              |-- 家庭、房间、设备、状态和网关 IP
+  |              `-- TCP 10002 --> WiFi 门锁 cmd=42 状态推送
   |
   |-- UDP 10000 --> 已知 MixPad 地址发现
   |
@@ -89,7 +92,7 @@ Home Assistant
                    `-- cmd=42 状态推送 --> Home Assistant 实体
 ```
 
-云端负责拓扑和属性型只读状态，局域网连接负责 Zigbee 子设备控制与实时状态。LAN 实体的可用性取决于所属网关连接；属性型只读实体的可用性取决于云端协调器。短暂云端故障不会直接使仍可通过 LAN 控制的设备离线。
+云端负责拓扑和属性型只读状态，TCP 10002 长连接负责 WiFi 门锁的实时属性事件，局域网连接负责 Zigbee 子设备控制与实时状态。LAN 实体的可用性取决于所属网关连接；属性型只读实体的可用性取决于云端协调器。短暂云端故障不会直接使仍可通过 LAN 控制的设备离线。
 
 ## 协议摘要
 
@@ -100,6 +103,7 @@ Home Assistant
 - 心跳：`cmd=32`，默认 60 秒。
 - 控制：`cmd=15`。
 - 状态推送：`cmd=42`。
+- 云端门锁推送使用独立的 TCP 10002 双向 TLS 会话，客户端证书随集成发布，服务器证书使用固定指纹校验。
 
 协议字段和设备命令详见 [DEVICE_PROTOCOL_REFERENCE.md](DEVICE_PROTOCOL_REFERENCE.md)。新增设备所需资料见 [DEVICE_EXTENSION_GUIDE.md](DEVICE_EXTENSION_GUIDE.md)。
 

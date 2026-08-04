@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import Mapping
 from contextlib import suppress
+from time import monotonic
 
 import aiohttp
 from homeassistant.core import HomeAssistant
@@ -32,8 +32,9 @@ from .device_profiles import (
 from .exceptions import OrviboLanError, StateStoreError
 from .gateway_manager import GatewayManager
 from .lib.cloud_client import CloudAuthenticationError, CloudClient
+from .lib.cloud_push import CloudLockEvent, CloudPushClient, parse_lock_event
 from .lib.gateway_connection import GatewayConnectionError
-from .lib.packet import CMD_STATE_UPDATE
+from .lib.packet import CMD_STATE_UPDATE, HTTPS_HOST
 from .models import StateSource, StateUpdate
 from .privacy import mask_identifier
 from .state_store import StateStore
@@ -113,6 +114,10 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         self._lan_generation = 0
         self._discover_task: asyncio.Task[None] | None = None
         self._notify_task: asyncio.Task[None] | None = None
+        self.cloud_push: CloudPushClient | None = None
+        self._cloud_push_task: asyncio.Task[None] | None = None
+        self._cloud_event_times: dict[str, int] = {}
+        self._push_credentials_warning_emitted = False
         self._closed = False
 
     async def async_setup(self) -> None:
@@ -160,7 +165,7 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
     async def _refresh_devices_from_cloud(self) -> None:
         """Fetch and merge a cloud snapshot through StateStore."""
 
-        refresh_timestamp = time.monotonic()
+        refresh_timestamp = monotonic()
         (
             devices,
             statuses,
@@ -197,7 +202,9 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
                 if room.get("roomId") not in (None, "")
             }
             self._gateway_ips = dict(gateway_ips)
+            self._cloud_event_times.clear()
             self._sync_public_states()
+            await self._configure_cloud_push()
             return
 
         self._ensure_state_store(set(new_devices))
@@ -205,12 +212,32 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         if store is None:
             raise UpdateFailed("ORVIBO cloud returned no supported devices")
         store.retain_devices(new_devices)
+        self._cloud_event_times = {
+            device_id: timestamp
+            for device_id, timestamp in self._cloud_event_times.items()
+            if device_id in new_devices
+        }
 
         self._cloud_generation += 1
         for device_id in new_devices:
             raw_state = statuses.get(device_id, {})
             values = dict(raw_state)
             values.setdefault("deviceId", device_id)
+            snapshot_update_time = self._state_update_time(values.get("updateTimeSec"))
+            previous_update_time = self._cloud_event_times.get(device_id)
+            if (
+                snapshot_update_time is not None
+                and previous_update_time is not None
+                and snapshot_update_time < previous_update_time
+            ):
+                # Preserve newer door properties received from the push stream while
+                # still accepting unrelated fields from the cloud snapshot.
+                values.pop("properties", None)
+            elif snapshot_update_time is not None:
+                self._cloud_event_times[device_id] = max(
+                    snapshot_update_time,
+                    previous_update_time or snapshot_update_time,
+                )
             self._parse_sensor_state(values, device_id, new_devices)
             store.apply(
                 StateUpdate(
@@ -234,6 +261,7 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         }
         self._gateway_ips = dict(gateway_ips)
         self._sync_public_states()
+        await self._configure_cloud_push()
 
     def _ensure_state_store(self, device_ids: set[str]) -> None:
         """Create the store once and extend its device whitelist in place."""
@@ -291,6 +319,145 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
                         _LOGGER.debug("Gateway discovery failed (%s)", type(err).__name__)
         except asyncio.CancelledError:
             raise
+
+    async def _configure_cloud_push(self) -> None:
+        """Start or rotate the authenticated cloud stream for Wi-Fi locks."""
+
+        has_cloud_lock = any(
+            self._is_cloud_lock_device(device_id) for device_id in self.devices
+        )
+        username = self.cloud_client.binary_username
+        password = self.cloud_client.binary_password
+        family_id = self.cloud_client.family_id or ""
+        if self._closed or not has_cloud_lock or not username or not password or not family_id:
+            await self._stop_cloud_push()
+            if has_cloud_lock and (not username or not password):
+                if not self._push_credentials_warning_emitted:
+                    _LOGGER.warning(
+                        "ORVIBO cloud push was not started because readtable did not "
+                        "return port-10002 credentials"
+                    )
+                    self._push_credentials_warning_emitted = True
+            return
+
+        self._push_credentials_warning_emitted = False
+        if self.cloud_push is None:
+            self.cloud_push = CloudPushClient(
+                HTTPS_HOST,
+                username,
+                password,
+                family_id,
+                self._on_cloud_lock_event,
+            )
+            self._cloud_push_task = self.hass.async_create_background_task(
+                self.cloud_push.run(),
+                name=f"{DOMAIN}_cloud_push",
+            )
+            return
+        await self.cloud_push.async_update_credentials(username, password)
+
+    async def _stop_cloud_push(self) -> None:
+        """Close the cloud stream and wait for its managed task to exit."""
+
+        client, self.cloud_push = self.cloud_push, None
+        task, self._cloud_push_task = self._cloud_push_task, None
+        if client is not None:
+            with suppress(Exception):
+                await client.close()
+        if task is not None and not task.done():
+            task.cancel()
+        if task is not None:
+            with suppress(asyncio.CancelledError, Exception):
+                await task
+
+    async def _on_cloud_lock_event(
+        self,
+        raw_event: CloudLockEvent | Mapping[str, object],
+    ) -> None:
+        """Merge one validated cloud lock event and notify HA immediately."""
+
+        event = (
+            raw_event
+            if isinstance(raw_event, CloudLockEvent)
+            else parse_lock_event(raw_event)
+        )
+        if event is None:
+            return
+        device_id = self._resolve_cloud_lock_device(event)
+        store = self._state_store
+        if device_id is None or store is None:
+            return
+        if event.update_time is not None:
+            previous_update_time = self._cloud_event_times.get(device_id)
+            if previous_update_time is not None and event.update_time < previous_update_time:
+                return
+            self._cloud_event_times[device_id] = max(
+                event.update_time,
+                previous_update_time or event.update_time,
+            )
+
+        self._cloud_generation += 1
+        try:
+            changed = store.apply(
+                StateUpdate(
+                    device_id=device_id,
+                    values={
+                        "deviceId": device_id,
+                        "properties": dict(event.properties),
+                    },
+                    source=StateSource.CLOUD,
+                    monotonic=monotonic(),
+                    generation=self._cloud_generation,
+                )
+            )
+        except StateStoreError as err:
+            _LOGGER.debug(
+                "Rejected cloud push for device %s: %s",
+                self._masked_device_id(device_id),
+                type(err).__name__,
+            )
+            return
+        if not changed:
+            return
+
+        self._sync_public_states(notify=False)
+        self.async_set_updated_data(self.device_states)
+        _LOGGER.debug(
+            "Applied cloud lock state for device %s (fields=%s)",
+            self._masked_device_id(device_id),
+            tuple(sorted(event.properties)),
+        )
+
+    def _resolve_cloud_lock_device(self, event: CloudLockEvent) -> str | None:
+        """Prefer deviceId and only use a unique lock UID as a legacy fallback."""
+
+        if event.device_id:
+            return (
+                event.device_id
+                if event.device_id in self.devices
+                and self._is_cloud_lock_device(event.device_id)
+                else None
+            )
+        if not event.uid:
+            return None
+        candidates = [
+            device_id
+            for device_id, device in self.devices.items()
+            if self._is_cloud_lock_device(device_id)
+            and event.uid
+            in {
+                device_id,
+                str(device.get("uid") or "").strip(),
+            }
+        ]
+        return candidates[0] if len(candidates) == 1 else None
+
+    def _is_cloud_lock_device(self, device_id: str) -> bool:
+        device_type = self.device_types.get(device_id)
+        if device_type in (107, 522):
+            return True
+        state = self.device_states.get(device_id)
+        return PROPERTY_DOOR_STATUS in state_properties(state)
 
     async def _on_status_update(
         self,
@@ -374,7 +541,7 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
                     device_id=device_id,
                     values=values,
                     source=StateSource.LAN,
-                    monotonic=time.monotonic(),
+                    monotonic=monotonic(),
                     generation=self._lan_generation,
                 )
             )
@@ -420,6 +587,18 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
             if device_id:
                 return device_id
         return None
+
+    @staticmethod
+    def _state_update_time(value: object) -> int | None:
+        """Normalize the optional server event timestamp used by cloud snapshots."""
+
+        if isinstance(value, bool) or not isinstance(value, (int, str)):
+            return None
+        try:
+            timestamp = int(str(value).strip())
+        except ValueError:
+            return None
+        return timestamp if timestamp >= 0 else None
 
     @staticmethod
     def _payload_command(value: object) -> int | None:
@@ -534,6 +713,7 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         if self._closed:
             return
         self._closed = True
+        await self._stop_cloud_push()
         tasks = (self._discover_task, self._notify_task)
         self._discover_task = None
         self._notify_task = None
@@ -555,6 +735,7 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         self.device_types.clear()
         self.room_names.clear()
         self._gateway_ips.clear()
+        self._cloud_event_times.clear()
 
     def get_device_state(self, device_id: str) -> dict[str, object] | None:
         """Return a detached mutable state view for entity compatibility."""
