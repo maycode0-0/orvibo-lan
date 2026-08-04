@@ -37,7 +37,8 @@ class PackageContractTests(unittest.TestCase):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
         self.assertEqual(manifest["domain"], "orvibo_lan")
-        self.assertEqual(manifest["version"], "0.1.1")
+        self.assertEqual(manifest["version"], "0.2.0")
+        self.assertEqual(manifest["iot_class"], "cloud_push")
         self.assertEqual(manifest["codeowners"], ["@maycode0-0"])
         self.assertEqual(
             manifest["documentation"],
