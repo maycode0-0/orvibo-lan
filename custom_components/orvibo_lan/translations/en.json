@@ -45,14 +45,27 @@
         }
       },
       "init": {
-        "title": "Select Devices",
-        "description": "Select LAN or property-based read-only devices to add",
+        "title": "Configure ORVIBO LAN",
+        "description": "Select devices and choose whether MixPad TCP login uses the cloud account or a separate locally authorized account",
         "data": {
-          "selected_device_ids": "Select Devices"
+          "selected_device_ids": "Select Devices",
+          "use_separate_lan_credentials": "Use separate MixPad LAN credentials"
+        }
+      },
+      "lan_credentials": {
+        "title": "MixPad LAN credentials",
+        "description": "Enter the account currently authorized by the MixPad for TCP 8088. Leave the password empty to keep a previously saved LAN password.",
+        "data": {
+          "lan_username": "LAN username",
+          "lan_password": "LAN password"
         }
       }
     },
     "error": {
+      "auth_failed": "Login failed, check your cloud credentials",
+      "cannot_connect": "Cannot connect to ORVIBO server",
+      "empty_lan_username_or_password": "A LAN username and password are required",
+      "no_devices": "No supported devices were found in this family",
       "no_devices_selected": "Please select at least one device"
     }
   }

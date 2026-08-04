@@ -11,12 +11,21 @@ from custom_components.orvibo_lan import (
     OrviboLanRuntimeData,
     _async_assign_areas,
     _register_services,
+    _resolve_lan_credentials,
     _schedule_area_assignment,
     _unregister_services_if_unused,
     async_migrate_entry,
     get_runtime_data,
 )
-from custom_components.orvibo_lan.const import DOMAIN, SERVICE_REFRESH_DEVICES
+from custom_components.orvibo_lan.const import (
+    CONF_LAN_PASSWORD,
+    CONF_LAN_USERNAME,
+    CONF_PASSWORD,
+    CONF_USE_SEPARATE_LAN_CREDENTIALS,
+    CONF_USERNAME,
+    DOMAIN,
+    SERVICE_REFRESH_DEVICES,
+)
 
 
 @pytest.mark.asyncio
@@ -77,6 +86,40 @@ def test_runtime_data_falls_back_to_hass_data() -> None:
     entry = SimpleNamespace(entry_id="entry-1")
 
     assert get_runtime_data(hass, entry) is runtime
+
+
+def test_lan_credentials_fall_back_to_cloud_account() -> None:
+    entry = SimpleNamespace(
+        data={CONF_USERNAME: "cloud-user", CONF_PASSWORD: "cloud-password"},
+        options={},
+    )
+
+    assert _resolve_lan_credentials(entry) == ("cloud-user", "cloud-password")
+
+
+def test_lan_credentials_use_complete_separate_override() -> None:
+    entry = SimpleNamespace(
+        data={CONF_USERNAME: "cloud-user", CONF_PASSWORD: "cloud-password"},
+        options={
+            CONF_USE_SEPARATE_LAN_CREDENTIALS: True,
+            CONF_LAN_USERNAME: " local-user ",
+            CONF_LAN_PASSWORD: "local-password",
+        },
+    )
+
+    assert _resolve_lan_credentials(entry) == ("local-user", "local-password")
+
+
+def test_incomplete_lan_override_falls_back_atomically() -> None:
+    entry = SimpleNamespace(
+        data={CONF_USERNAME: "cloud-user", CONF_PASSWORD: "cloud-password"},
+        options={
+            CONF_USE_SEPARATE_LAN_CREDENTIALS: True,
+            CONF_LAN_USERNAME: "local-user",
+        },
+    )
+
+    assert _resolve_lan_credentials(entry) == ("cloud-user", "cloud-password")
 
 
 def test_area_assignment_callback_uses_thread_safe_job_and_clears_listener() -> None:

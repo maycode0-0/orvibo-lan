@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -47,6 +47,64 @@ def cloud_result(
         {"gateway-1": "192.168.1.2"},
         object(),
     )
+
+
+def test_separate_lan_credentials_do_not_change_cloud_auth() -> None:
+    coordinator = OrviboLanCoordinator(
+        FakeHass(),
+        MagicMock(),
+        "cloud-user",
+        "cloud-password",
+        lan_username="local-user",
+        lan_password="local-password",
+    )
+
+    assert coordinator.cloud_client.username == "cloud-user"
+    assert coordinator.cloud_client._password == "cloud-password"
+    assert coordinator.username == "local-user"
+    assert coordinator.password == "local-password"
+
+
+def test_separate_lan_credentials_must_be_complete() -> None:
+    with pytest.raises(ValueError, match="must be provided together"):
+        OrviboLanCoordinator(
+            FakeHass(),
+            MagicMock(),
+            "cloud-user",
+            "cloud-password",
+            lan_username="local-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_setup_passes_separate_credentials_to_gateway_manager() -> None:
+    coordinator = OrviboLanCoordinator(
+        FakeHass(),
+        MagicMock(),
+        "cloud-user",
+        "cloud-password",
+        lan_username="local-user",
+        lan_password="local-password",
+    )
+    coordinator.cloud_client.login = AsyncMock()
+    coordinator._refresh_devices_from_cloud = AsyncMock()
+    coordinator._connect_all_gateways = AsyncMock()
+    manager = SimpleNamespace(close=AsyncMock())
+
+    with patch(
+        "custom_components.orvibo_lan.coordinator.GatewayManager",
+        return_value=manager,
+    ) as manager_class:
+        await coordinator.async_setup()
+
+    manager_class.assert_called_once_with(
+        "local-user",
+        "local-password",
+        {},
+        push_callback=coordinator._on_status_update,
+    )
+    await coordinator.async_cleanup()
+    manager.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

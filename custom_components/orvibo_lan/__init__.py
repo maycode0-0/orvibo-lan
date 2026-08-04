@@ -16,7 +16,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     CONF_FAMILY_ID,
+    CONF_LAN_PASSWORD,
+    CONF_LAN_USERNAME,
     CONF_PASSWORD,
+    CONF_USE_SEPARATE_LAN_CREDENTIALS,
     CONF_USERNAME,
     DOMAIN,
     HIDDEN_TYPES,
@@ -28,6 +31,19 @@ from .coordinator import OrviboLanCoordinator
 from .selection import config_entry_unique_id, selected_device_ids
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _resolve_lan_credentials(entry: ConfigEntry) -> tuple[str, str]:
+    """Use an atomic LAN override, otherwise fall back to cloud credentials."""
+
+    cloud_username = str(entry.data[CONF_USERNAME])
+    cloud_password = str(entry.data[CONF_PASSWORD])
+    if entry.options.get(CONF_USE_SEPARATE_LAN_CREDENTIALS) is True:
+        lan_username = str(entry.options.get(CONF_LAN_USERNAME) or "").strip()
+        lan_password = str(entry.options.get(CONF_LAN_PASSWORD) or "")
+        if lan_username and lan_password:
+            return lan_username, lan_password
+    return cloud_username, cloud_password
 
 
 @dataclass(slots=True)
@@ -148,12 +164,17 @@ def _schedule_area_assignment(
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up one config entry and all entity platforms."""
 
+    cloud_username = str(entry.data[CONF_USERNAME])
+    cloud_password = str(entry.data[CONF_PASSWORD])
+    lan_username, lan_password = _resolve_lan_credentials(entry)
     coordinator = OrviboLanCoordinator(
         hass,
         async_get_clientsession(hass),
-        str(entry.data[CONF_USERNAME]),
-        str(entry.data[CONF_PASSWORD]),
+        cloud_username,
+        cloud_password,
         str(entry.data[CONF_FAMILY_ID]) if entry.data.get(CONF_FAMILY_ID) else None,
+        lan_username=lan_username,
+        lan_password=lan_password,
     )
     try:
         await coordinator.async_setup()

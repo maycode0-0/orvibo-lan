@@ -19,6 +19,9 @@ CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_FAMILY_ID = "family_id"
 CONF_SELECTED_DEVICE_IDS = "selected_device_ids"
+CONF_USE_SEPARATE_LAN_CREDENTIALS = "use_separate_lan_credentials"
+CONF_LAN_USERNAME = "lan_username"
+CONF_LAN_PASSWORD = "lan_password"
 
 SERVICE_REFRESH_DEVICES = "refresh_devices"
 

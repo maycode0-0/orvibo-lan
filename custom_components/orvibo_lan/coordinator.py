@@ -86,6 +86,9 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         username: str,
         password: str,
         family_id: str | None = None,
+        *,
+        lan_username: str | None = None,
+        lan_password: str | None = None,
     ) -> None:
         super().__init__(
             hass,
@@ -93,8 +96,10 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
             name=f"{DOMAIN} coordinator",
             update_interval=UPDATE_INTERVAL,
         )
-        self.username = username
-        self.password = password
+        if (lan_username is None) != (lan_password is None):
+            raise ValueError("LAN username and password must be provided together")
+        self.username = lan_username or username
+        self.password = lan_password or password
         self.family_id = family_id
         self.cloud_client = CloudClient(session, username, password, family_id)
         self.gateway_manager: GatewayManager | None = None

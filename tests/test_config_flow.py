@@ -10,8 +10,11 @@ import pytest
 from custom_components.orvibo_lan import config_flow
 from custom_components.orvibo_lan.const import (
     CONF_FAMILY_ID,
+    CONF_LAN_PASSWORD,
+    CONF_LAN_USERNAME,
     CONF_PASSWORD,
     CONF_SELECTED_DEVICE_IDS,
+    CONF_USE_SEPARATE_LAN_CREDENTIALS,
     CONF_USERNAME,
 )
 
@@ -109,3 +112,147 @@ async def test_user_flow_rejects_empty_credentials() -> None:
 
     assert result["type"] == "form"
     assert result["errors"] == {"base": "empty_username_or_password"}
+
+
+@pytest.mark.asyncio
+async def test_options_flow_saves_separate_lan_credentials() -> None:
+    entry = SimpleNamespace(
+        data={
+            CONF_USERNAME: "cloud-account",
+            CONF_PASSWORD: "cloud-password",
+            CONF_FAMILY_ID: "family-1",
+        },
+        options={CONF_SELECTED_DEVICE_IDS: ["device-1"]},
+    )
+    flow = config_flow.OrviboLanOptionsFlow(entry)
+    flow.hass = SimpleNamespace()
+
+    with (
+        patch.object(config_flow, "CloudClient", return_value=FakeCloudClient()),
+        patch.object(config_flow, "async_get_clientsession", return_value=object()),
+    ):
+        result = await flow.async_step_init(
+            {
+                CONF_SELECTED_DEVICE_IDS: ["device-1"],
+                CONF_USE_SEPARATE_LAN_CREDENTIALS: True,
+            }
+        )
+        assert result["step_id"] == "lan_credentials"
+
+        result = await flow.async_step_lan_credentials(
+            {
+                CONF_LAN_USERNAME: "local-account",
+                CONF_LAN_PASSWORD: "local-password",
+            }
+        )
+
+    assert result == {
+        "type": "create_entry",
+        "title": "",
+        "data": {
+            CONF_SELECTED_DEVICE_IDS: ["device-1"],
+            CONF_USE_SEPARATE_LAN_CREDENTIALS: True,
+            CONF_LAN_USERNAME: "local-account",
+            CONF_LAN_PASSWORD: "local-password",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_options_flow_preserves_saved_lan_password_when_left_blank() -> None:
+    entry = SimpleNamespace(
+        data={
+            CONF_USERNAME: "cloud-account",
+            CONF_PASSWORD: "cloud-password",
+            CONF_FAMILY_ID: "family-1",
+        },
+        options={
+            CONF_SELECTED_DEVICE_IDS: ["device-1"],
+            CONF_USE_SEPARATE_LAN_CREDENTIALS: True,
+            CONF_LAN_USERNAME: "old-local-account",
+            CONF_LAN_PASSWORD: "saved-local-password",
+        },
+    )
+    flow = config_flow.OrviboLanOptionsFlow(entry)
+    flow.hass = SimpleNamespace()
+
+    with (
+        patch.object(config_flow, "CloudClient", return_value=FakeCloudClient()),
+        patch.object(config_flow, "async_get_clientsession", return_value=object()),
+    ):
+        result = await flow.async_step_init(
+            {
+                CONF_SELECTED_DEVICE_IDS: ["device-1"],
+                CONF_USE_SEPARATE_LAN_CREDENTIALS: True,
+            }
+        )
+        assert result["step_id"] == "lan_credentials"
+        result = await flow.async_step_lan_credentials(
+            {CONF_LAN_USERNAME: "new-local-account", CONF_LAN_PASSWORD: ""}
+        )
+
+    assert result["data"][CONF_LAN_USERNAME] == "new-local-account"
+    assert result["data"][CONF_LAN_PASSWORD] == "saved-local-password"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_requires_password_for_new_lan_override() -> None:
+    entry = SimpleNamespace(
+        data={
+            CONF_USERNAME: "cloud-account",
+            CONF_PASSWORD: "cloud-password",
+            CONF_FAMILY_ID: "family-1",
+        },
+        options={CONF_SELECTED_DEVICE_IDS: ["device-1"]},
+    )
+    flow = config_flow.OrviboLanOptionsFlow(entry)
+    flow.hass = SimpleNamespace()
+
+    with (
+        patch.object(config_flow, "CloudClient", return_value=FakeCloudClient()),
+        patch.object(config_flow, "async_get_clientsession", return_value=object()),
+    ):
+        await flow.async_step_init(
+            {
+                CONF_SELECTED_DEVICE_IDS: ["device-1"],
+                CONF_USE_SEPARATE_LAN_CREDENTIALS: True,
+            }
+        )
+        result = await flow.async_step_lan_credentials(
+            {CONF_LAN_USERNAME: "local-account", CONF_LAN_PASSWORD: ""}
+        )
+
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "empty_lan_username_or_password"}
+
+
+@pytest.mark.asyncio
+async def test_options_flow_cloud_mode_removes_lan_override() -> None:
+    entry = SimpleNamespace(
+        data={
+            CONF_USERNAME: "cloud-account",
+            CONF_PASSWORD: "cloud-password",
+            CONF_FAMILY_ID: "family-1",
+        },
+        options={
+            CONF_SELECTED_DEVICE_IDS: ["device-1"],
+            CONF_USE_SEPARATE_LAN_CREDENTIALS: True,
+            CONF_LAN_USERNAME: "local-account",
+            CONF_LAN_PASSWORD: "local-password",
+        },
+    )
+    flow = config_flow.OrviboLanOptionsFlow(entry)
+    flow.hass = SimpleNamespace()
+
+    with (
+        patch.object(config_flow, "CloudClient", return_value=FakeCloudClient()),
+        patch.object(config_flow, "async_get_clientsession", return_value=object()),
+    ):
+        result = await flow.async_step_init(
+            {
+                CONF_SELECTED_DEVICE_IDS: ["device-1"],
+                CONF_USE_SEPARATE_LAN_CREDENTIALS: False,
+            }
+        )
+
+    assert result["data"] == {CONF_SELECTED_DEVICE_IDS: ["device-1"]}

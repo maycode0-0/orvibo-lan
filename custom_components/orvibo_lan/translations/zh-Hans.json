@@ -45,14 +45,27 @@
         }
       },
       "init": {
-        "title": "选择设备",
-        "description": "选择需要接入的 LAN 或属性型只读设备",
+        "title": "配置 Orvibo 局域网",
+        "description": "选择设备，并指定 MixPad TCP 登录使用云端账号还是独立的本地授权账号",
         "data": {
-          "selected_device_ids": "选择设备"
+          "selected_device_ids": "选择设备",
+          "use_separate_lan_credentials": "使用独立的 MixPad LAN 凭据"
+        }
+      },
+      "lan_credentials": {
+        "title": "MixPad LAN 凭据",
+        "description": "请输入 MixPad 当前允许通过 TCP 8088 登录的账号。密码留空时保留已保存的 LAN 密码。",
+        "data": {
+          "lan_username": "LAN 账号",
+          "lan_password": "LAN 密码"
         }
       }
     },
     "error": {
+      "auth_failed": "登录失败，请检查云端账号密码",
+      "cannot_connect": "无法连接到 ORVIBO 服务器",
+      "empty_lan_username_or_password": "LAN 账号和密码不能为空",
+      "no_devices": "该家庭下没有支持的设备",
       "no_devices_selected": "请至少选择一个设备"
     }
   }

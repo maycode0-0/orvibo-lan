@@ -13,8 +13,11 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
     CONF_FAMILY_ID,
+    CONF_LAN_PASSWORD,
+    CONF_LAN_USERNAME,
     CONF_PASSWORD,
     CONF_SELECTED_DEVICE_IDS,
+    CONF_USE_SEPARATE_LAN_CREDENTIALS,
     CONF_USERNAME,
     DOMAIN,
     HIDDEN_TYPES,
@@ -57,6 +60,21 @@ def _device_schema(
                     mode=selector.SelectSelectorMode.LIST,
                 )
             )
+        }
+    )
+
+
+def _options_schema(
+    devices: list[JsonObject],
+    default_ids: list[str],
+    use_separate_lan_credentials: bool,
+) -> vol.Schema:
+    return _device_schema(devices, default_ids).extend(
+        {
+            vol.Required(
+                CONF_USE_SEPARATE_LAN_CREDENTIALS,
+                default=use_separate_lan_credentials,
+            ): selector.BooleanSelector()
         }
     )
 
@@ -267,6 +285,7 @@ class OrviboLanOptionsFlow(config_entries.OptionsFlow):
         # with HA versions that do not populate that property yet.
         self._config_entry = config_entry
         self._devices: list[JsonObject] = []
+        self._selected_device_ids: list[str] = []
 
     async def async_step_init(
         self,
@@ -293,6 +312,9 @@ class OrviboLanOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None and CONF_SELECTED_DEVICE_IDS in user_input:
             selected = _validated_selection(user_input[CONF_SELECTED_DEVICE_IDS], self._devices)
             if selected:
+                self._selected_device_ids = selected
+                if user_input.get(CONF_USE_SEPARATE_LAN_CREDENTIALS) is True:
+                    return await self.async_step_lan_credentials()
                 return self.async_create_entry(
                     title="",
                     data={CONF_SELECTED_DEVICE_IDS: selected},
@@ -302,9 +324,57 @@ class OrviboLanOptionsFlow(config_entries.OptionsFlow):
             config_entry.options,
             (str(device["deviceId"]) for device in self._devices),
         )
+        use_separate_lan_credentials = (
+            config_entry.options.get(CONF_USE_SEPARATE_LAN_CREDENTIALS) is True
+            and bool(config_entry.options.get(CONF_LAN_USERNAME))
+            and bool(config_entry.options.get(CONF_LAN_PASSWORD))
+        )
         return self.async_show_form(
             step_id="init",
-            data_schema=_device_schema(self._devices, sorted(current)),
+            data_schema=_options_schema(
+                self._devices,
+                sorted(current),
+                use_separate_lan_credentials,
+            ),
+            errors=errors,
+        )
+
+    async def async_step_lan_credentials(
+        self,
+        user_input: JsonObject | None = None,
+    ) -> FlowResult:
+        """Configure credentials used only for MixPad TCP authentication."""
+
+        errors: dict[str, str] = {}
+        saved_username = str(self._config_entry.options.get(CONF_LAN_USERNAME) or "")
+        saved_password = str(self._config_entry.options.get(CONF_LAN_PASSWORD) or "")
+        if user_input is not None:
+            lan_username = str(user_input.get(CONF_LAN_USERNAME) or "").strip()
+            lan_password = str(user_input.get(CONF_LAN_PASSWORD) or "") or saved_password
+            if not lan_username or not lan_password:
+                errors["base"] = "empty_lan_username_or_password"
+            else:
+                return self.async_create_entry(
+                    title="",
+                    data={
+                        CONF_SELECTED_DEVICE_IDS: self._selected_device_ids,
+                        CONF_USE_SEPARATE_LAN_CREDENTIALS: True,
+                        CONF_LAN_USERNAME: lan_username,
+                        CONF_LAN_PASSWORD: lan_password,
+                    },
+                )
+        return self.async_show_form(
+            step_id="lan_credentials",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_LAN_USERNAME, default=saved_username): str,
+                    vol.Optional(CONF_LAN_PASSWORD): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.PASSWORD,
+                        )
+                    ),
+                }
+            ),
             errors=errors,
         )
 
