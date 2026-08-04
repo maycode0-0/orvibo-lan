@@ -221,6 +221,56 @@ async def test_lan_push_normalizes_firmware_device_id_variants(id_field: str) ->
 
 
 @pytest.mark.asyncio
+async def test_lan_door_push_does_not_treat_device_uid_as_gateway_uid() -> None:
+    coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
+    result = cloud_result(status={"deviceId": "device-1", "value1": 0})
+    result[0][0]["deviceType"] = 46
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=result)
+    await coordinator._refresh_devices_from_cloud()
+
+    await coordinator._on_status_update(
+        "gateway-1",
+        {
+            "cmd": 42,
+            "deviceId": "device-1",
+            "uid": "device-event-uid",
+            "statusType": 46,
+            "alarmType": 0,
+            "value1": 1,
+            "value2": 0,
+            "value3": 0,
+            "value4": 87,
+        },
+    )
+
+    assert coordinator._notify_task is not None
+    await coordinator._notify_task
+    state = coordinator.get_device_state("device-1")
+    assert state is not None
+    assert state["door_state"] is True
+
+    await coordinator._on_status_update(
+        "gateway-1",
+        {
+            "cmd": 42,
+            "deviceId": "device-1",
+            "uid": "device-event-uid",
+            "statusType": 46,
+            "alarmType": 0,
+            "value1": 0,
+            "value2": 0,
+            "value3": 0,
+            "value4": 87,
+        },
+    )
+    assert coordinator._notify_task is not None
+    await coordinator._notify_task
+    state = coordinator.get_device_state("device-1")
+    assert state is not None
+    assert state["door_state"] is False
+
+
+@pytest.mark.asyncio
 async def test_lan_push_without_supported_device_id_is_ignored() -> None:
     coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
     coordinator.cloud_client.fetch_devices = AsyncMock(return_value=cloud_result())
@@ -265,7 +315,12 @@ async def test_older_cloud_snapshot_does_not_roll_back_lan() -> None:
         ("gateway-1", {"cmd": 42, "deviceId": "device-1", "door_state": True}),
         (
             "gateway-1",
-            {"cmd": 42, "deviceId": "device-1", "uid": "wrong-gateway", "value1": 0},
+            {
+                "cmd": 42,
+                "deviceId": "device-1",
+                "gatewayUid": "wrong-gateway",
+                "value1": 0,
+            },
         ),
     ],
 )

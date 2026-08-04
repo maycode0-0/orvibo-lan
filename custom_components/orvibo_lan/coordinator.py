@@ -438,7 +438,10 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
 
     @staticmethod
     def _payload_gateway_uid(payload: Mapping[str, object]) -> str | None:
-        for field in ("gatewayUid", "gatewayUID", "uid"):
+        # Unsolicited device updates use ``uid`` for different identities across
+        # firmware variants. The manager-bound callback already authenticates the
+        # source gateway, so only explicit gateway fields are safe to compare.
+        for field in ("gatewayUid", "gatewayUID"):
             value = payload.get(field)
             if isinstance(value, str) and value.strip():
                 return value.strip()
