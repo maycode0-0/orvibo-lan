@@ -415,9 +415,9 @@ async def async_setup_entry(
             entities.extend(factory(coordinator, device_id, device))
 
         properties = state_properties(state)
+        has_property_battery = factory is None and _get_battery(state) is not None
         if (
-            factory is not _lock_sensors
-            and device.get("_orvibo_status_only") is True
+            has_property_battery
             and PROPERTY_DOOR_STATUS in properties
         ):
             entities.extend(_lock_metadata_sensors(coordinator, device_id, device))
@@ -427,8 +427,7 @@ async def async_setup_entry(
             if property_value(properties, "humidity") is not None:
                 entities.append(OrviboLanHumiditySensor(coordinator, device_id, device))
 
-        has_factory_battery = factory is not None
-        if not has_factory_battery and _get_battery(state) is not None:
+        if has_property_battery:
             model_value = device.get("model")
             model = str(model_value) if model_value not in (None, "") else "Orvibo Property Device"
             entities.append(

@@ -250,7 +250,7 @@ async def test_lock_open_direction_and_user_sensors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_status_only_property_lock_registers_open_metadata_sensors() -> None:
+async def test_unprofiled_property_lock_registers_open_metadata_sensors() -> None:
     coordinator = OrviboLanCoordinator(
         SimpleNamespace(),
         MagicMock(),
@@ -263,17 +263,28 @@ async def test_status_only_property_lock_registers_open_metadata_sensors() -> No
         "uid": "",
         "_orvibo_lan_capable": False,
         "_orvibo_read_only": True,
-        "_orvibo_status_only": True,
     }
-    coordinator.devices = {"status-lock": device}
-    coordinator.device_types = {"status-lock": 0}
+    contact = {
+        "deviceId": "door-contact",
+        "deviceType": 46,
+        "uid": "gateway",
+        "_orvibo_lan_capable": True,
+    }
+    coordinator.devices = {"status-lock": device, "door-contact": contact}
+    coordinator.device_types = {"status-lock": 0, "door-contact": 46}
     coordinator.device_states = {
         "status-lock": {
             "properties": {
                 "battery_power": 80,
                 "door_status": "closed",
             }
-        }
+        },
+        "door-contact": {
+            "properties": {
+                "battery_power": 90,
+                "door_status": "closed",
+            }
+        },
     }
     coordinator.last_update_success = True
     runtime = OrviboLanRuntimeData(coordinator, MagicMock())
@@ -294,6 +305,8 @@ async def test_status_only_property_lock_registers_open_metadata_sensors() -> No
         isinstance(entity, sensor.OrviboLanLockOpenDirectionSensor) for entity in entities
     ) == 1
     assert sum(isinstance(entity, sensor.OrviboLanLockOpenUserSensor) for entity in entities) == 1
+    assert direction._attr_unique_id.endswith("status-lock")
+    assert user._attr_unique_id.endswith("status-lock")
     assert direction.native_value is None
     assert user.native_value is None
 
