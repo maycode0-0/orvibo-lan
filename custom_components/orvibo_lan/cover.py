@@ -1,4 +1,4 @@
-"""Orvibo LAN Cover 平台（窗帘）。"""
+"""Orvibo Lan Cover 平台（窗帘）。"""
 
 import logging
 from typing import Optional

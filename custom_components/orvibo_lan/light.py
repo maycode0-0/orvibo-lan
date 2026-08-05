@@ -1,4 +1,4 @@
-"""Orvibo LAN Light 平台。
+"""Orvibo Lan Light 平台。
 参考 orvibohomebridge 的成熟控制逻辑：
 - 旧协议 (statusType=2): value1=onoff, value2=亮度, value3=色温(mired), order="on"/"fast color temperature"
 - ThingModel (statusType=501/502/503): properties.onoff/brightness/colorTemp, order="set property"

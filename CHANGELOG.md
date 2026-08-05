@@ -1,6 +1,6 @@
 # Changelog
 
-本文件记录 Orvibo LAN 作为独立项目的用户可见变化。
+本文件记录 Orvibo Lan 作为独立项目的用户可见变化。
 
 ## [Unreleased]
 
@@ -149,7 +149,7 @@
 
 ## [0.0.1] - 2026-07-31
 
-Orvibo LAN 独立项目的首个发布版本。
+Orvibo Lan 独立项目的首个发布版本。
 
 ### Added
 

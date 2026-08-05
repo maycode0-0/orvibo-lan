@@ -1,79 +1,104 @@
 {
- "name": "Release",
- "on": {
- "push": {
- "branches": ["main"],
- "tags": ["v*.*.*"],
- "paths": ["custom_components/orvibo_lan/manifest.json"]
- },
- "workflow_dispatch": {}
- },
- "permissions": { "contents": "read" },
- "concurrency": {
- "group": "release-${{ github.ref }}",
- "cancel-in-progress": false
- },
- "jobs": {
- "validate": {
- "name": "Run full validation",
- "uses": "./.github/workflows/validate.yml"
- },
- "verify": {
- "name": "Verify release contract",
- "runs-on": "ubuntu-latest",
- "steps": [
- { "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262", "with": { "fetch-depth":0 } },
- { "uses": "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065", "with": { "python-version": "3.11" } },
- { "name": "Compile integration", "run": "python -m compileall -q custom_components/orvibo_lan" },
- { "name": "Verify package contract", "run": "python -m unittest discover -s tests -p 'test_package_contract.py' -v\npython -m unittest discover -s tests -p 'test_release_workflow.py' -v" }
- ]
- },
- "release": {
- "name": "Publish HACS ZIP",
- "needs": ["validate", "verify"],
- "runs-on": "ubuntu-latest",
- "permissions": { "contents": "write" },
- "steps": [
- { "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262", "with": { "fetch-depth":0 } },
- {
- "name": "Create release tag on main",
- "if": "github.event_name == 'push' && github.ref == 'refs/heads/main'",
- "uses": "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
- "with": {
- "script": "const fs = require('fs');\nconst manifest = JSON.parse(fs.readFileSync('custom_components/orvibo_lan/manifest.json', 'utf8'));\nconst version = manifest.version;\nif (!/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/.test(version)) { core.setFailed(`Invalid manifest version: ${version}`); return; }\nconst tag = `v${version}`;\ntry {\n const existing = await github.rest.git.getRef({ ...context.repo, ref: `tags/${tag}` });\n if (existing.data.object.sha !== context.sha) { core.setFailed(`${tag} already points to ${existing.data.object.sha}, not ${context.sha}; bump manifest.version before releasing`); }\n} catch (error) {\n if (error.status !== 404) throw error;\n await github.rest.git.createRef({ ...context.repo, ref: `refs/tags/${tag}`, sha: context.sha });\n}"
- }
- },
- {
- "name": "Resolve and validate manifest version",
- "id": "version",
- "uses": "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
- "with": {
- "script": "const fs = require('fs');\nconst manifest = JSON.parse(fs.readFileSync('custom_components/orvibo_lan/manifest.json', 'utf8'));\nconst version = manifest.version;\nif (!/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/.test(version)) { core.setFailed(`Invalid manifest version: ${version}`); return; }\nconst tag = `v${version}`;\nif (context.eventName === 'push' && context.ref.startsWith('refs/tags/') && context.ref !== `refs/tags/${tag}`) { core.setFailed(`Pushed tag ${context.ref} does not match manifest ${tag}`); return; }\nif (context.eventName === 'workflow_dispatch' && context.ref !== 'refs/heads/main') { core.setFailed('Manual release repair is only allowed from main'); return; }\ncore.setOutput('version', version);\ncore.setOutput('tag', tag);"
- }
- },
- {
- "name": "Validate tag target",
- "env": { "RELEASE_TAG": "${{ steps.version.outputs.tag }}" },
- "shell": "bash",
- "run": "git fetch --force --tags\nif ! git rev-parse --verify --quiet \"refs/tags/$RELEASE_TAG\" >/dev/null; then\n echo \"Required tag $RELEASE_TAG does not exist; workflow_dispatch only repairs tagged releases.\" >&2\n false\nfi\ntest \"$(git rev-parse \"refs/tags/$RELEASE_TAG^{commit}\")\" = \"$(git rev-parse HEAD)\""
- },
- {
- "name": "Build HACS ZIP",
- "shell": "bash",
- "run": "python scripts/build_release.py orvibo_lan.zip"
- },
- {
- "name": "Create or repair GitHub release",
- "uses": "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
- "env": {
- "RELEASE_TAG": "${{ steps.version.outputs.tag }}",
- "RELEASE_VERSION": "${{ steps.version.outputs.version }}"
- },
- "with": {
- "script": "const fs = require('fs');\nconst tag = process.env.RELEASE_TAG;\nlet release = await github.rest.repos.getReleaseByTag({ ...context.repo, tag }).catch(error => error.status ===404 ? null : Promise.reject(error));\nif (!release) {\n release = await github.rest.repos.createRelease({ ...context.repo, tag_name: tag, name: `Orvibo LAN ${tag}`, generate_release_notes: true, draft: false, prerelease: false });\n}\nfor (const asset of release.data.assets.filter(item => item.name === 'orvibo_lan.zip')) {\n await github.rest.repos.deleteReleaseAsset({ ...context.repo, asset_id: asset.id });\n}\nconst data = fs.readFileSync('orvibo_lan.zip');\nif (data.length ===0) { core.setFailed('orvibo_lan.zip is empty'); return; }\nawait github.rest.repos.uploadReleaseAsset({ ...context.repo, release_id: release.data.id, name: 'orvibo_lan.zip', data, headers: { 'content-type': 'application/zip', 'content-length': data.length } });"
- }
- }
- ]
- }
- }
+  "name": "Release",
+  "on":
+    {
+      "push":
+        {
+          "branches": ["main"],
+          "tags": ["v*.*.*"],
+          "paths": ["custom_components/orvibo_lan/manifest.json"],
+        },
+      "workflow_dispatch": {},
+    },
+  "permissions": { "contents": "read" },
+  "concurrency":
+    { "group": "release-${{ github.ref }}", "cancel-in-progress": false },
+  "jobs":
+    {
+      "validate":
+        {
+          "name": "Run full validation",
+          "uses": "./.github/workflows/validate.yml",
+        },
+      "verify":
+        {
+          "name": "Verify release contract",
+          "runs-on": "ubuntu-latest",
+          "steps":
+            [
+              {
+                "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+                "with": { "fetch-depth": 0 },
+              },
+              {
+                "uses": "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+                "with": { "python-version": "3.11" },
+              },
+              {
+                "name": "Compile integration",
+                "run": "python -m compileall -q custom_components/orvibo_lan",
+              },
+              {
+                "name": "Verify package contract",
+                "run": "python -m unittest discover -s tests -p 'test_package_contract.py' -v\npython -m unittest discover -s tests -p 'test_release_workflow.py' -v",
+              },
+            ],
+        },
+      "release":
+        {
+          "name": "Publish HACS ZIP",
+          "needs": ["validate", "verify"],
+          "runs-on": "ubuntu-latest",
+          "permissions": { "contents": "write" },
+          "steps":
+            [
+              {
+                "uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+                "with": { "fetch-depth": 0 },
+              },
+              {
+                "name": "Create release tag on main",
+                "if": "github.event_name == 'push' && github.ref == 'refs/heads/main'",
+                "uses": "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
+                "with":
+                  {
+                    "script": "const fs = require('fs');\nconst manifest = JSON.parse(fs.readFileSync('custom_components/orvibo_lan/manifest.json', 'utf8'));\nconst version = manifest.version;\nif (!/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/.test(version)) { core.setFailed(`Invalid manifest version: ${version}`); return; }\nconst tag = `v${version}`;\ntry {\n const existing = await github.rest.git.getRef({ ...context.repo, ref: `tags/${tag}` });\n if (existing.data.object.sha !== context.sha) { core.setFailed(`${tag} already points to ${existing.data.object.sha}, not ${context.sha}; bump manifest.version before releasing`); }\n} catch (error) {\n if (error.status !== 404) throw error;\n await github.rest.git.createRef({ ...context.repo, ref: `refs/tags/${tag}`, sha: context.sha });\n}",
+                  },
+              },
+              {
+                "name": "Resolve and validate manifest version",
+                "id": "version",
+                "uses": "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
+                "with":
+                  {
+                    "script": "const fs = require('fs');\nconst manifest = JSON.parse(fs.readFileSync('custom_components/orvibo_lan/manifest.json', 'utf8'));\nconst version = manifest.version;\nif (!/^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$/.test(version)) { core.setFailed(`Invalid manifest version: ${version}`); return; }\nconst tag = `v${version}`;\nif (context.eventName === 'push' && context.ref.startsWith('refs/tags/') && context.ref !== `refs/tags/${tag}`) { core.setFailed(`Pushed tag ${context.ref} does not match manifest ${tag}`); return; }\nif (context.eventName === 'workflow_dispatch' && context.ref !== 'refs/heads/main') { core.setFailed('Manual release repair is only allowed from main'); return; }\ncore.setOutput('version', version);\ncore.setOutput('tag', tag);",
+                  },
+              },
+              {
+                "name": "Validate tag target",
+                "env": { "RELEASE_TAG": "${{ steps.version.outputs.tag }}" },
+                "shell": "bash",
+                "run": "git fetch --force --tags\nif ! git rev-parse --verify --quiet \"refs/tags/$RELEASE_TAG\" >/dev/null; then\n echo \"Required tag $RELEASE_TAG does not exist; workflow_dispatch only repairs tagged releases.\" >&2\n false\nfi\ntest \"$(git rev-parse \"refs/tags/$RELEASE_TAG^{commit}\")\" = \"$(git rev-parse HEAD)\"",
+              },
+              {
+                "name": "Build HACS ZIP",
+                "shell": "bash",
+                "run": "python scripts/build_release.py orvibo_lan.zip",
+              },
+              {
+                "name": "Create or repair GitHub release",
+                "uses": "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
+                "env":
+                  {
+                    "RELEASE_TAG": "${{ steps.version.outputs.tag }}",
+                    "RELEASE_VERSION": "${{ steps.version.outputs.version }}",
+                  },
+                "with":
+                  {
+                    "script": "const fs = require('fs');\nconst tag = process.env.RELEASE_TAG;\nlet release = await github.rest.repos.getReleaseByTag({ ...context.repo, tag }).catch(error => error.status ===404 ? null : Promise.reject(error));\nif (!release) {\n release = await github.rest.repos.createRelease({ ...context.repo, tag_name: tag, name: `Orvibo Lan ${tag}`, generate_release_notes: true, draft: false, prerelease: false });\n}\nfor (const asset of release.data.assets.filter(item => item.name === 'orvibo_lan.zip')) {\n await github.rest.repos.deleteReleaseAsset({ ...context.repo, asset_id: asset.id });\n}\nconst data = fs.readFileSync('orvibo_lan.zip');\nif (data.length ===0) { core.setFailed('orvibo_lan.zip is empty'); return; }\nawait github.rest.repos.uploadReleaseAsset({ ...context.repo, release_id: release.data.id, name: 'orvibo_lan.zip', data, headers: { 'content-type': 'application/zip', 'content-length': data.length } });",
+                  },
+              },
+            ],
+        },
+    },
 }

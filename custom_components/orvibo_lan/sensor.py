@@ -1,4 +1,4 @@
-"""ORVIBO LAN sensor platform."""
+"""Orvibo Lan sensor platform."""
 
 from __future__ import annotations
 

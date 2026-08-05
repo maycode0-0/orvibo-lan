@@ -1,4 +1,4 @@
-"""Domain exceptions for the Orvibo LAN integration."""
+"""Domain exceptions for the Orvibo Lan integration."""
 
 
 class OrviboLanError(Exception):

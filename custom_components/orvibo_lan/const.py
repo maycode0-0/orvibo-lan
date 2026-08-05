@@ -1,4 +1,4 @@
-"""ORVIBO LAN  常量定义。"""
+"""Orvibo Lan  常量定义。"""
 
 from datetime import timedelta
 

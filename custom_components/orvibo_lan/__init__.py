@@ -1,4 +1,4 @@
-"""ORVIBO LAN  integration lifecycle."""
+"""Orvibo Lan  integration lifecycle."""
 
 from __future__ import annotations
 
@@ -183,7 +183,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise
     except Exception as err:
         await coordinator.async_cleanup()
-        raise ConfigEntryNotReady("Unable to initialize ORVIBO LAN") from err
+        raise ConfigEntryNotReady("Unable to initialize Orvibo Lan") from err
 
     remove_options_listener = entry.add_update_listener(_async_options_updated)
     runtime = OrviboLanRuntimeData(coordinator, remove_options_listener)

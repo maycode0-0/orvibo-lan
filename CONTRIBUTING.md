@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢你改进 Orvibo LAN 。提交前请确认变更不会把账号、密码、Token、Cookie、Session Key、真实设备 ID、家庭信息或完整控制 payload 写入代码、日志、测试夹具和公开报告。
+感谢你改进 Orvibo Lan 。提交前请确认变更不会把账号、密码、Token、Cookie、Session Key、真实设备 ID、家庭信息或完整控制 payload 写入代码、日志、测试夹具和公开报告。
 
 ## 开发环境
 

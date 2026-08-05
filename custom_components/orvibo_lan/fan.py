@@ -1,4 +1,4 @@
-"""Orvibo LAN Fan 平台（新风系统）。"""
+"""Orvibo Lan Fan 平台（新风系统）。"""
 
 import logging
 from collections.abc import Mapping

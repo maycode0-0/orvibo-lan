@@ -1,6 +1,6 @@
 # 设备接入与实现分析
 
-本文从当前源码出发，说明 Orvibo LAN 的设备数据来源、运行链路、能力模型和仍需改进的边界。协议字段详情见 [DEVICE_PROTOCOL_REFERENCE.md](DEVICE_PROTOCOL_REFERENCE.md)，新增设备资料要求见 [DEVICE_EXTENSION_GUIDE.md](DEVICE_EXTENSION_GUIDE.md)。
+本文从当前源码出发，说明 Orvibo Lan 的设备数据来源、运行链路、能力模型和仍需改进的边界。协议字段详情见 [DEVICE_PROTOCOL_REFERENCE.md](DEVICE_PROTOCOL_REFERENCE.md)，新增设备资料要求见 [DEVICE_EXTENSION_GUIDE.md](DEVICE_EXTENSION_GUIDE.md)。
 
 ## 结论
 

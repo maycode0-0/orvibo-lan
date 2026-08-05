@@ -1,4 +1,4 @@
-"""Orvibo LAN Climate 平台（空调）。"""
+"""Orvibo Lan Climate 平台（空调）。"""
 
 import logging
 from typing import Optional

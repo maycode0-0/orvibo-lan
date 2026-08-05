@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "ORVIBO LAN",
+        "title": "Orvibo Lan",
         "description": "Enter your ORVIBO account credentials.",
         "data": {
           "username": "Username",
@@ -45,7 +45,7 @@
   "options": {
     "step": {
       "init": {
-        "title": "Configure ORVIBO LAN",
+        "title": "Configure Orvibo Lan",
         "description": "Select devices and choose whether MixPad TCP login uses the cloud account or a separate locally authorized account.",
         "data": {
           "selected_device_ids": "Devices",

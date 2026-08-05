@@ -1,6 +1,6 @@
 # 架构说明
 
-本文描述 Orvibo LAN 当前的运行时边界、数据流、并发模型和资源所有权。
+本文描述 Orvibo Lan 当前的运行时边界、数据流、并发模型和资源所有权。
 
 ```text
 Home Assistant ConfigEntry
@@ -28,7 +28,7 @@ StateStore ---- 不可变快照与 generation ---- HA 实体平台
 | `__init__.py`                       | ConfigEntry 生命周期、平台加载、服务注册和区域分配  |
 | `config_flow.py`、`selection.py`    | 登录、家庭选择、设备选择、唯一 ID 和配置更新        |
 | `lib/cloud_client.py`               | 云端认证、家庭读取、`readtable`、超时与错误分类     |
-| `lib/cloud_push.py`                 | 10002 双向 TLS、证书固定、门锁事件解析、重连和心跳 |
+| `lib/cloud_push.py`                 | 10002 双向 TLS、证书固定、门锁事件解析、重连和心跳  |
 | `lib/protocol.py`、`models.py`      | 严格包模型、长度/CRC/加密校验和不可变值             |
 | `lib/discovery.py`                  | UDP 网关候选发现、地址过滤和 UID 校验               |
 | `lib/gateway_connection.py`         | TCP 会话、单 Reader、心跳、请求路由、推送分发和关闭 |

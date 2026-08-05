@@ -1,4 +1,4 @@
-"""Config, reauthentication, and options flows for ORVIBO LAN."""
+"""Config, reauthentication, and options flows for Orvibo Lan."""
 
 from __future__ import annotations
 
@@ -105,7 +105,7 @@ class OrviboLanConfigFlow(  # type: ignore[call-arg]
     config_entries.ConfigFlow,
     domain=DOMAIN,
 ):
-    """Create and reauthenticate an ORVIBO LAN config entry."""
+    """Create and reauthenticate an Orvibo Lan config entry."""
 
     VERSION = 3
 
@@ -225,7 +225,7 @@ class OrviboLanConfigFlow(  # type: ignore[call-arg]
         await self.async_set_unique_id(config_entry_unique_id(self._user_id, family_id))
         self._abort_if_unique_id_configured()
         return self.async_create_entry(
-            title=self._family_name or "Orvibo LAN",
+            title=self._family_name or "Orvibo Lan",
             data={
                 CONF_USERNAME: self._username,
                 CONF_PASSWORD: self._password,

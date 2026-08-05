@@ -1,1 +1,1 @@
-"""lib 包：Orvibo LAN 协议核心库。"""
+"""lib 包：Orvibo Lan 协议核心库。"""

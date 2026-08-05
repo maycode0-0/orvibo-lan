@@ -1,4 +1,4 @@
-"""Device selection helper for Orvibo LAN  config entries.
+"""Device selection helper for Orvibo Lan  config entries.
 
 参照 orvibohomebridge 的 selection.py，支持用户在配置流程中选择要暴露的设备。
 """
