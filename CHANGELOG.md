@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-05
+
+### Fixed
+
+- 门锁实体识别改为依据 `battery_power` 和 `door_status` 能力组合，不再依赖设备记录来源标记，确保未知 `deviceType` 的 WiFi 门锁也注册最近开门方向和用户实体。
+
 ## [0.3.1] - 2026-08-05
 
 ### Fixed

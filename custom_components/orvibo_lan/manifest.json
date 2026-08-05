@@ -8,5 +8,5 @@
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/maycode0-0/orvibo-lan/issues",
   "requirements": ["aiohttp", "cryptography"],
-  "version": "0.3.1"
+  "version": "0.3.2"
 }
