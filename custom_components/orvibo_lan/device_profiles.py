@@ -22,9 +22,13 @@ _LOCK_OPEN_DIRECTION_PROPERTY_KEYS = (
     "dooropenfrom",
     "openfrom",
     "doorside",
+)
+_LOCK_OPEN_METHOD_PROPERTY_KEYS = (
+    "lockopentype",
     "dooropentype",
     "opendoortype",
     "opentype",
+    "unlocktype",
 )
 _LOCK_OPEN_USER_PROPERTY_KEYS = (
     "lockopenuser",
@@ -69,6 +73,19 @@ _LOCK_DIRECTION_VALUES = {
     "室外": "outside",
     "室外开门": "outside",
 }
+_OUTSIDE_LOCK_OPEN_METHODS = frozenset(
+    {
+        "fingerprint",
+        "fingerprintopen",
+        "password",
+        "passwordopen",
+        "pwd",
+        "指纹",
+        "指纹开门",
+        "密码",
+        "密码开门",
+    }
+)
 _MAX_LOCK_USER_LENGTH = 128
 
 VERIFIED_PROPERTY_LIGHT_MODELS = frozenset(
@@ -141,7 +158,7 @@ def property_percentage(properties: Mapping[str, Any], key: str) -> Optional[int
 
 
 def lock_open_direction(properties: Mapping[str, Any]) -> str | None:
-    """Return a canonical inside/outside value from known lock property names."""
+    """Return or infer a canonical inside/outside lock opening direction."""
 
     for value in _property_alias_values(properties, _LOCK_OPEN_DIRECTION_PROPERTY_KEYS):
         if not isinstance(value, str):
@@ -149,6 +166,17 @@ def lock_open_direction(properties: Mapping[str, Any]) -> str | None:
         direction = _LOCK_DIRECTION_VALUES.get(_normalized_token(value))
         if direction is not None:
             return direction
+
+    for value in _property_alias_values(properties, _LOCK_OPEN_METHOD_PROPERTY_KEYS):
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            continue
+        method = _normalized_token(str(value))
+        if not method:
+            continue
+        explicit_direction = _LOCK_DIRECTION_VALUES.get(method)
+        if explicit_direction is not None:
+            return explicit_direction
+        return "outside" if method in _OUTSIDE_LOCK_OPEN_METHODS else "inside"
     return None
 
 

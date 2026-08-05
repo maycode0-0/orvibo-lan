@@ -123,11 +123,17 @@ def test_lock_event_helpers_normalize_direction_and_user_aliases():
     assert lock_open_user({"open_user_name": "", "open_user_id": 8}) == "8"
 
 
+def test_lock_event_helpers_infer_direction_from_unlock_method():
+    assert lock_open_direction({"openType": "fingerprint"}) == "outside"
+    assert lock_open_direction({"doorOpenType": {"value": "password"}}) == "outside"
+    assert lock_open_direction({"openType": "manual"}) == "inside"
+    assert lock_open_direction({"openType": ""}) is None
+
+
 def test_lock_event_helpers_reject_unrelated_or_unsafe_user_values():
     assert lock_open_user({"userName": "cloud-account"}) is None
     assert lock_open_user({"openUserName": "Alice\nAdmin"}) is None
     assert lock_open_user({"openUserName": "x" * 129}) is None
-    assert lock_open_direction({"openType": "fingerprint"}) is None
 
 
 def test_status_only_property_device_is_retained_without_becoming_a_light():

@@ -47,6 +47,9 @@ _HEARTBEAT_INTERVAL: Final = 60.0
 _RECONNECT_DELAY: Final = 5.0
 _HEADER_SIZE: Final = 42
 _MAX_FRAME_SIZE: Final = 65535
+_MAX_DIAGNOSTIC_FIELDS: Final = 64
+_MAX_DIAGNOSTIC_DEPTH: Final = 4
+_MAX_DIAGNOSTIC_KEY_LENGTH: Final = 48
 _PUSH_SOFTWARE_VERSION: Final = "5.2.6.302"
 _PUSH_SOFTWARE_VERSION_CODE: Final = "50206302"
 _PUSH_DEBUG_INFO: Final = "Android_ZhiJia365_32_5.2.6.302"
@@ -90,6 +93,58 @@ def _identifier(value: object) -> str:
     if isinstance(value, bool) or not isinstance(value, (str, int)):
         return ""
     return str(value).strip()
+
+
+def lock_event_field_shapes(packet: Mapping[str, Any]) -> tuple[str, ...]:
+    """Return bounded field paths and types without retaining packet values."""
+
+    fields: list[str] = []
+
+    def safe_key(value: object) -> str:
+        text = str(value).strip()
+        result = "".join(
+            character if character.isalnum() or character in "_-" else "_"
+            for character in text
+        )
+        return result[:_MAX_DIAGNOSTIC_KEY_LENGTH] or "field"
+
+    def value_type(value: object) -> str:
+        if isinstance(value, Mapping):
+            return "object"
+        if isinstance(value, (list, tuple)):
+            return "array"
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, int):
+            return "integer"
+        if isinstance(value, float):
+            return "number"
+        if isinstance(value, str):
+            return "string"
+        if value is None:
+            return "null"
+        return "other"
+
+    def visit(value: object, path: str, depth: int) -> None:
+        if len(fields) >= _MAX_DIAGNOSTIC_FIELDS:
+            return
+        fields.append(f"{path}:{value_type(value)}")
+        if depth >= _MAX_DIAGNOSTIC_DEPTH:
+            return
+        if isinstance(value, Mapping):
+            for raw_key in sorted(value, key=lambda item: str(item)):
+                nested_path = f"{path}.{safe_key(raw_key)}"
+                visit(value[raw_key], nested_path, depth + 1)
+                if len(fields) >= _MAX_DIAGNOSTIC_FIELDS:
+                    break
+        elif isinstance(value, (list, tuple)) and value:
+            visit(value[0], f"{path}[]", depth + 1)
+
+    for raw_key in sorted(packet, key=lambda item: str(item)):
+        visit(packet[raw_key], safe_key(raw_key), 1)
+        if len(fields) >= _MAX_DIAGNOSTIC_FIELDS:
+            break
+    return tuple(fields)
 
 
 def _lock_property(key: str, value: object) -> object | None:
@@ -378,6 +433,10 @@ class CloudPushClient:
         event = parse_lock_event(packet)
         if event is None:
             return
+        _LOGGER.debug(
+            "ORVIBO cloud lock event schema (fields=%s)",
+            lock_event_field_shapes(packet),
+        )
         try:
             await self._callback(event)
         except asyncio.CancelledError:

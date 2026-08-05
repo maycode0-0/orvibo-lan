@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -108,6 +109,25 @@ def test_parse_lock_event_accepts_specific_top_level_metadata() -> None:
     }
 
 
+def test_parse_lock_event_infers_direction_from_unlock_method() -> None:
+    event = parse_lock_event(
+        {
+            "cmd": 42,
+            "deviceId": "device-1",
+            "properties": {
+                "openType": "fingerprint",
+                "openUserId": 7,
+            },
+        }
+    )
+
+    assert event is not None
+    assert event.properties == {
+        PROPERTY_LOCK_OPEN_DIRECTION: "outside",
+        PROPERTY_LOCK_OPEN_USER: "7",
+    }
+
+
 @pytest.mark.asyncio
 async def test_dynamic_packet_round_trip() -> None:
     client = CloudPushClient(
@@ -132,6 +152,41 @@ async def test_dynamic_packet_round_trip() -> None:
     session_id, decoded = await client._read_packet(reader)
     assert session_id == b"s" * 32
     assert decoded["properties"] == {"door_status": "open"}
+
+
+@pytest.mark.asyncio
+async def test_lock_event_schema_log_never_exposes_values(caplog) -> None:
+    callback = AsyncMock()
+    client = CloudPushClient(
+        "china.orvibo.com",
+        "binary-user",
+        "transient-password",
+        "family-1",
+        callback,
+    )
+    packet = {
+        "cmd": 42,
+        "deviceId": "private-device-value",
+        "properties": {
+            "door_status": "open",
+            "unlockRecord": {
+                "userName": "private-user-value",
+                "direction": "private-direction-value",
+                "credentials": ["private-token-value"],
+            },
+        },
+    }
+
+    with caplog.at_level(logging.DEBUG, logger=cloud_push.__name__):
+        await client._dispatch_packet(packet)
+
+    callback.assert_awaited_once()
+    assert "properties.unlockRecord.userName:string" in caplog.text
+    assert "properties.unlockRecord.credentials[]:string" in caplog.text
+    assert "private-device-value" not in caplog.text
+    assert "private-user-value" not in caplog.text
+    assert "private-direction-value" not in caplog.text
+    assert "private-token-value" not in caplog.text
 
 
 @pytest.mark.asyncio
