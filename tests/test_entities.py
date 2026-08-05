@@ -239,10 +239,63 @@ async def test_lock_open_direction_and_user_sensors() -> None:
     user = next(
         entity for entity in entities if isinstance(entity, sensor.OrviboLanLockOpenUserSensor)
     )
+    assert sum(
+        isinstance(entity, sensor.OrviboLanLockOpenDirectionSensor) for entity in entities
+    ) == 1
+    assert sum(isinstance(entity, sensor.OrviboLanLockOpenUserSensor) for entity in entities) == 1
     assert direction.native_value == "室外"
     assert user.native_value == "张三"
     assert "via_device" not in direction._attr_device_info
     assert "via_device" not in user._attr_device_info
+
+
+@pytest.mark.asyncio
+async def test_status_only_property_lock_registers_open_metadata_sensors() -> None:
+    coordinator = OrviboLanCoordinator(
+        SimpleNamespace(),
+        MagicMock(),
+        "user",
+        "password",
+    )
+    device = {
+        "deviceId": "status-lock",
+        "deviceType": 0,
+        "uid": "",
+        "_orvibo_lan_capable": False,
+        "_orvibo_read_only": True,
+        "_orvibo_status_only": True,
+    }
+    coordinator.devices = {"status-lock": device}
+    coordinator.device_types = {"status-lock": 0}
+    coordinator.device_states = {
+        "status-lock": {
+            "properties": {
+                "battery_power": 80,
+                "door_status": "closed",
+            }
+        }
+    }
+    coordinator.last_update_success = True
+    runtime = OrviboLanRuntimeData(coordinator, MagicMock())
+    entry = SimpleNamespace(entry_id="entry", options={})
+    hass = SimpleNamespace(data={DOMAIN: {"entry": runtime}})
+    entities: list[object] = []
+
+    await sensor.async_setup_entry(hass, entry, entities.extend)
+
+    assert any(isinstance(entity, sensor.OrviboLanBatterySensor) for entity in entities)
+    direction = next(
+        entity for entity in entities if isinstance(entity, sensor.OrviboLanLockOpenDirectionSensor)
+    )
+    user = next(
+        entity for entity in entities if isinstance(entity, sensor.OrviboLanLockOpenUserSensor)
+    )
+    assert sum(
+        isinstance(entity, sensor.OrviboLanLockOpenDirectionSensor) for entity in entities
+    ) == 1
+    assert sum(isinstance(entity, sensor.OrviboLanLockOpenUserSensor) for entity in entities) == 1
+    assert direction.native_value is None
+    assert user.native_value is None
 
 
 @pytest.mark.asyncio

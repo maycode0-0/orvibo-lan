@@ -20,6 +20,7 @@ from .const import DOMAIN, MANUFACTURER
 from .coordinator import OrviboLanCoordinator
 from .device_profiles import (
     PROPERTY_BATTERY_POWER,
+    PROPERTY_DOOR_STATUS,
     PROPERTY_LOCK_OPEN_DIRECTION,
     PROPERTY_LOCK_OPEN_USER,
     property_percentage,
@@ -358,6 +359,16 @@ def _lock_sensors(
     return [
         OrviboLanDryBatterySensor(coordinator, device_id, device),
         OrviboLanLithiumBatterySensor(coordinator, device_id, device),
+        *_lock_metadata_sensors(coordinator, device_id, device),
+    ]
+
+
+def _lock_metadata_sensors(
+    coordinator: OrviboLanCoordinator,
+    device_id: str,
+    device: Device,
+) -> list[SensorEntity]:
+    return [
         OrviboLanLockOpenDirectionSensor(coordinator, device_id, device),
         OrviboLanLockOpenUserSensor(coordinator, device_id, device),
     ]
@@ -404,6 +415,12 @@ async def async_setup_entry(
             entities.extend(factory(coordinator, device_id, device))
 
         properties = state_properties(state)
+        if (
+            factory is not _lock_sensors
+            and device.get("_orvibo_status_only") is True
+            and PROPERTY_DOOR_STATUS in properties
+        ):
+            entities.extend(_lock_metadata_sensors(coordinator, device_id, device))
         if device_type == 300:
             if property_value(properties, "temperature") is not None:
                 entities.append(OrviboLanTemperatureSensor(coordinator, device_id, device))
