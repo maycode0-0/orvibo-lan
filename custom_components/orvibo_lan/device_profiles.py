@@ -9,7 +9,67 @@ from .profiles import platforms_for_type
 
 PROPERTY_DOOR_STATUS = "door_status"
 PROPERTY_BATTERY_POWER = "battery_power"
+PROPERTY_LOCK_OPEN_DIRECTION = "lock_open_direction"
+PROPERTY_LOCK_OPEN_USER = "lock_open_user"
 READ_ONLY_PROPERTIES = frozenset({PROPERTY_DOOR_STATUS, PROPERTY_BATTERY_POWER})
+
+_LOCK_OPEN_DIRECTION_PROPERTY_KEYS = (
+    "lockopendirection",
+    "dooropendirection",
+    "opendoordirection",
+    "opendirection",
+    "unlockdirection",
+    "dooropenfrom",
+    "openfrom",
+    "doorside",
+    "dooropentype",
+    "opendoortype",
+    "opentype",
+)
+_LOCK_OPEN_USER_PROPERTY_KEYS = (
+    "lockopenuser",
+    "lockopenusername",
+    "dooropenuser",
+    "dooropenusername",
+    "opendooruser",
+    "opendoorusername",
+    "openuser",
+    "openusername",
+    "unlockuser",
+    "unlockusername",
+    "membername",
+    "lockopenuserid",
+    "dooropenuserid",
+    "opendooruserid",
+    "openuserid",
+    "unlockuserid",
+    "memberid",
+)
+_LOCK_DIRECTION_VALUES = {
+    "in": "inside",
+    "indoor": "inside",
+    "indoors": "inside",
+    "inner": "inside",
+    "inside": "inside",
+    "insideopen": "inside",
+    "interior": "inside",
+    "internal": "inside",
+    "frominside": "inside",
+    "室内": "inside",
+    "室内开门": "inside",
+    "out": "outside",
+    "outdoor": "outside",
+    "outdoors": "outside",
+    "outer": "outside",
+    "outside": "outside",
+    "outsideopen": "outside",
+    "exterior": "outside",
+    "external": "outside",
+    "fromoutside": "outside",
+    "室外": "outside",
+    "室外开门": "outside",
+}
+_MAX_LOCK_USER_LENGTH = 128
 
 VERIFIED_PROPERTY_LIGHT_MODELS = frozenset(
     {
@@ -78,6 +138,65 @@ def property_percentage(properties: Mapping[str, Any], key: str) -> Optional[int
     except (TypeError, ValueError):
         return None
     return percentage if 0 <= percentage <= 100 else None
+
+
+def lock_open_direction(properties: Mapping[str, Any]) -> str | None:
+    """Return a canonical inside/outside value from known lock property names."""
+
+    for value in _property_alias_values(properties, _LOCK_OPEN_DIRECTION_PROPERTY_KEYS):
+        if not isinstance(value, str):
+            continue
+        direction = _LOCK_DIRECTION_VALUES.get(_normalized_token(value))
+        if direction is not None:
+            return direction
+    return None
+
+
+def lock_open_user(properties: Mapping[str, Any]) -> str | None:
+    """Return one bounded door-opening user name or identifier."""
+
+    for value in _property_alias_values(properties, _LOCK_OPEN_USER_PROPERTY_KEYS):
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            continue
+        text = str(value).strip()
+        if not text or len(text) > _MAX_LOCK_USER_LENGTH or not text.isprintable():
+            continue
+        return text
+    return None
+
+
+def _property_alias_values(
+    properties: Mapping[str, Any],
+    aliases: tuple[str, ...],
+) -> list[Any]:
+    normalized_properties = {
+        _normalized_token(str(key)): value for key, value in properties.items()
+    }
+    values: list[Any] = []
+    for alias in aliases:
+        if alias not in normalized_properties:
+            continue
+        value = normalized_properties[alias]
+        if not isinstance(value, Mapping):
+            values.append(value)
+            continue
+        for nested_key in (
+            "value",
+            "status",
+            "name",
+            "userName",
+            "username",
+            "direction",
+            "type",
+        ):
+            if nested_key in value:
+                values.append(value[nested_key])
+                break
+    return values
+
+
+def _normalized_token(value: str) -> str:
+    return "".join(character for character in value.strip().lower() if character.isalnum())
 
 
 def platforms_for_device(

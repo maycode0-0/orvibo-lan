@@ -15,6 +15,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from ..device_profiles import (
+    PROPERTY_LOCK_OPEN_DIRECTION,
+    PROPERTY_LOCK_OPEN_USER,
+    lock_open_direction,
+    lock_open_user,
+)
 from ..exceptions import OrviboLanError
 from .packet import (
     CMD_HEARTBEAT,
@@ -123,6 +129,12 @@ def parse_lock_event(packet: Mapping[str, Any]) -> CloudLockEvent | None:
         value = _lock_property(key, raw_properties[key])
         if value is not None:
             properties[key] = value
+    open_direction = lock_open_direction(raw_properties) or lock_open_direction(packet)
+    if open_direction is not None:
+        properties[PROPERTY_LOCK_OPEN_DIRECTION] = open_direction
+    open_user = lock_open_user(raw_properties) or lock_open_user(packet)
+    if open_user is not None:
+        properties[PROPERTY_LOCK_OPEN_USER] = open_user
     if not properties:
         return None
     raw_update_time = packet.get("updateTimeSec")

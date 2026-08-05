@@ -10,6 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.orvibo_lan.coordinator import OrviboLanCoordinator
+from custom_components.orvibo_lan.device_profiles import (
+    PROPERTY_LOCK_OPEN_DIRECTION,
+    PROPERTY_LOCK_OPEN_USER,
+)
 from custom_components.orvibo_lan.lib.gateway_connection import GatewayConnectionError
 from custom_components.orvibo_lan.models import StateSource
 
@@ -301,16 +305,68 @@ async def test_cloud_lock_push_updates_property_door_state_immediately() -> None
             "cmd": 42,
             "deviceId": "device-1",
             "uid": "different-event-uid",
-            "properties": {"door_status": "open", "ssid": "private-network"},
+            "properties": {
+                "door_status": "open",
+                "doorOpenType": "outside",
+                "doorOpenUserName": "张三",
+                "ssid": "private-network",
+            },
             "updateTimeSec": 1785419851,
         }
     )
 
     state = coordinator.get_device_state("device-1")
     assert state is not None
-    assert state["properties"] == {"door_status": "open"}
+    assert state["properties"] == {
+        "door_status": "open",
+        PROPERTY_LOCK_OPEN_DIRECTION: "outside",
+        PROPERTY_LOCK_OPEN_USER: "张三",
+    }
     assert state["property_door_open"] is True
+    assert state[PROPERTY_LOCK_OPEN_DIRECTION] == "outside"
+    assert state[PROPERTY_LOCK_OPEN_USER] == "张三"
     assert notifications == 1
+
+
+@pytest.mark.asyncio
+async def test_cloud_lock_close_preserves_last_open_metadata() -> None:
+    coordinator = OrviboLanCoordinator(FakeHass(), MagicMock(), "user", "password")
+    result = cloud_result(
+        status={
+            "deviceId": "device-1",
+            "properties": {"door_status": "closed"},
+        }
+    )
+    result[0][0].update({"deviceType": 522, "uid": "lock-uid"})
+    coordinator.cloud_client.fetch_devices = AsyncMock(return_value=result)
+    await coordinator._refresh_devices_from_cloud()
+
+    await coordinator._on_cloud_lock_event(
+        {
+            "cmd": 42,
+            "deviceId": "device-1",
+            "properties": {
+                "door_status": "open",
+                "open_direction": "outside",
+                "open_user_name": "张三",
+            },
+            "updateTimeSec": 100,
+        }
+    )
+    await coordinator._on_cloud_lock_event(
+        {
+            "cmd": 42,
+            "deviceId": "device-1",
+            "properties": {"door_status": "closed"},
+            "updateTimeSec": 101,
+        }
+    )
+
+    state = coordinator.get_device_state("device-1")
+    assert state is not None
+    assert state["property_door_open"] is False
+    assert state[PROPERTY_LOCK_OPEN_DIRECTION] == "outside"
+    assert state[PROPERTY_LOCK_OPEN_USER] == "张三"
 
 
 @pytest.mark.asyncio

@@ -231,7 +231,7 @@ TCP connect MixPad:8088
 }
 ```
 
-`properties` 按属性级合并。项目还识别 `battery_power` 和 `door_status`，支持标量和嵌套值。连续推送会经过短暂防抖后通知 Home Assistant。
+`properties` 按属性级合并。项目还识别 `battery_power`、`door_status`，以及门锁开门方向和用户字段，支持常见的 snake_case/camelCase 名称与标量/嵌套值。开门方向统一为 `inside`/`outside`，用户名称或编号会经过长度和控制字符校验；Home Assistant 分别显示为“最近开门方向”和“最近开门用户”。连续推送会经过短暂防抖后通知 Home Assistant。
 
 ## 类型与平台索引
 

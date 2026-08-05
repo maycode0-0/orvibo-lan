@@ -23,6 +23,10 @@ from .const import DOMAIN, GATEWAY_DISCOVER_INTERVAL, UPDATE_INTERVAL
 from .device_profiles import (
     PROPERTY_BATTERY_POWER,
     PROPERTY_DOOR_STATUS,
+    PROPERTY_LOCK_OPEN_DIRECTION,
+    PROPERTY_LOCK_OPEN_USER,
+    lock_open_direction,
+    lock_open_user,
     normalize_device_type,
     normalize_readtable_devices,
     property_percentage,
@@ -53,6 +57,8 @@ _DERIVED_STATE_FIELDS = frozenset(
         "emergency_state",
         "gas_detected",
         "humidity",
+        PROPERTY_LOCK_OPEN_DIRECTION,
+        PROPERTY_LOCK_OPEN_USER,
         "motion_detected",
         "property_door_open",
         "smoke_detected",
@@ -842,6 +848,12 @@ class OrviboLanCoordinator(DataUpdateCoordinator[dict[str, dict[str, object]]]):
         door_open = property_switch_state(properties, PROPERTY_DOOR_STATUS)
         if door_open is not None:
             state["property_door_open"] = door_open
+        open_direction = lock_open_direction(properties)
+        if open_direction is not None:
+            state[PROPERTY_LOCK_OPEN_DIRECTION] = open_direction
+        open_user = lock_open_user(properties)
+        if open_user is not None:
+            state[PROPERTY_LOCK_OPEN_USER] = open_user
 
     async def _debounced_notify(self) -> None:
         try:

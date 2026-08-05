@@ -8,6 +8,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from custom_components.orvibo_lan.device_profiles import (
+    PROPERTY_LOCK_OPEN_DIRECTION,
+    PROPERTY_LOCK_OPEN_USER,
+)
 from custom_components.orvibo_lan.lib import cloud_push
 from custom_components.orvibo_lan.lib.cloud_push import (
     CloudPushClient,
@@ -31,6 +35,8 @@ def test_parse_lock_event_prefers_device_id_and_filters_properties() -> None:
                 "door_status": "open",
                 "reverse_lock": "off",
                 "handle": "down",
+                "doorOpenType": {"value": "outside"},
+                "doorOpenUserName": {"name": "张三"},
                 "ssid": "private-network",
             },
             "updateTimeSec": 1785419851,
@@ -44,6 +50,8 @@ def test_parse_lock_event_prefers_device_id_and_filters_properties() -> None:
         "door_status": "open",
         "reverse_lock": "off",
         "handle": "down",
+        PROPERTY_LOCK_OPEN_DIRECTION: "outside",
+        PROPERTY_LOCK_OPEN_USER: "张三",
     }
     assert event.update_time == 1785419851
 
@@ -59,6 +67,45 @@ def test_parse_lock_event_rejects_unknown_door_values() -> None:
         )
         is None
     )
+
+
+def test_parse_lock_event_accepts_open_metadata_without_door_state() -> None:
+    event = parse_lock_event(
+        {
+            "cmd": "42",
+            "deviceId": "device-1",
+            "properties": {
+                "open_direction": "室内",
+                "unlock_user_id": 7,
+                "userName": "cloud-account",
+            },
+        }
+    )
+
+    assert event is not None
+    assert event.properties == {
+        PROPERTY_LOCK_OPEN_DIRECTION: "inside",
+        PROPERTY_LOCK_OPEN_USER: "7",
+    }
+
+
+def test_parse_lock_event_accepts_specific_top_level_metadata() -> None:
+    event = parse_lock_event(
+        {
+            "cmd": 42,
+            "deviceId": "device-1",
+            "userName": "cloud-account",
+            "openDoorDirection": "outside",
+            "openDoorUserName": "李四",
+            "properties": {},
+        }
+    )
+
+    assert event is not None
+    assert event.properties == {
+        PROPERTY_LOCK_OPEN_DIRECTION: "outside",
+        PROPERTY_LOCK_OPEN_USER: "李四",
+    }
 
 
 @pytest.mark.asyncio

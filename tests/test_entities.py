@@ -201,6 +201,51 @@ async def test_read_only_entities_do_not_reference_a_missing_gateway() -> None:
 
 
 @pytest.mark.asyncio
+async def test_lock_open_direction_and_user_sensors() -> None:
+    coordinator = OrviboLanCoordinator(
+        SimpleNamespace(),
+        MagicMock(),
+        "user",
+        "password",
+    )
+    device = {
+        "deviceId": "w-lock",
+        "deviceType": 522,
+        "uid": "wifi-lock-uid",
+        "deviceName": "Door lock",
+        "_orvibo_lan_capable": False,
+        "_orvibo_read_only": True,
+    }
+    coordinator.devices = {"w-lock": device}
+    coordinator.device_types = {"w-lock": 522}
+    coordinator.device_states = {
+        "w-lock": {
+            "lock_open_direction": "outside",
+            "lock_open_user": "张三",
+            "properties": {"door_status": "open"},
+        }
+    }
+    coordinator.last_update_success = True
+    runtime = OrviboLanRuntimeData(coordinator, MagicMock())
+    entry = SimpleNamespace(entry_id="entry", options={})
+    hass = SimpleNamespace(data={DOMAIN: {"entry": runtime}})
+    entities: list[object] = []
+
+    await sensor.async_setup_entry(hass, entry, entities.extend)
+
+    direction = next(
+        entity for entity in entities if isinstance(entity, sensor.OrviboLanLockOpenDirectionSensor)
+    )
+    user = next(
+        entity for entity in entities if isinstance(entity, sensor.OrviboLanLockOpenUserSensor)
+    )
+    assert direction.native_value == "室外"
+    assert user.native_value == "张三"
+    assert "via_device" not in direction._attr_device_info
+    assert "via_device" not in user._attr_device_info
+
+
+@pytest.mark.asyncio
 async def test_platform_entities_parse_state_and_send_commands() -> None:
     hass, entry, coordinator = entity_context()
     platform_entities: dict[str, list[object]] = {}

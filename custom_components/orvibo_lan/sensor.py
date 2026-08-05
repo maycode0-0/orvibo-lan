@@ -20,6 +20,8 @@ from .const import DOMAIN, MANUFACTURER
 from .coordinator import OrviboLanCoordinator
 from .device_profiles import (
     PROPERTY_BATTERY_POWER,
+    PROPERTY_LOCK_OPEN_DIRECTION,
+    PROPERTY_LOCK_OPEN_USER,
     property_percentage,
     property_value,
     state_properties,
@@ -246,6 +248,64 @@ class OrviboLanLithiumBatterySensor(OrviboLanBatterySensor):
         return _get_battery(state) if value is None else _safe_percentage(value)
 
 
+class OrviboLanLockOpenDirectionSensor(OrviboLanEntity, SensorEntity):
+    """Most recent inside/outside door-opening direction."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:door-open"
+
+    def __init__(
+        self,
+        coordinator: OrviboLanCoordinator,
+        device_id: str,
+        device: Device,
+    ) -> None:
+        super().__init__(coordinator)
+        self._device_id = device_id
+        self._attr_unique_id = f"{DOMAIN}_lock_open_direction_{device_id}"
+        self._attr_name = "最近开门方向"
+        self._attr_device_info = _device_info(device_id, device, "Orvibo Door Lock")
+
+    @property
+    def native_value(self) -> str | None:
+        state = self.coordinator.get_device_state(self._device_id)
+        if not state:
+            return None
+        value = state.get(PROPERTY_LOCK_OPEN_DIRECTION)
+        if value == "inside":
+            return "室内"
+        if value == "outside":
+            return "室外"
+        return None
+
+
+class OrviboLanLockOpenUserSensor(OrviboLanEntity, SensorEntity):
+    """Most recent validated door-opening user."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-key"
+
+    def __init__(
+        self,
+        coordinator: OrviboLanCoordinator,
+        device_id: str,
+        device: Device,
+    ) -> None:
+        super().__init__(coordinator)
+        self._device_id = device_id
+        self._attr_unique_id = f"{DOMAIN}_lock_open_user_{device_id}"
+        self._attr_name = "最近开门用户"
+        self._attr_device_info = _device_info(device_id, device, "Orvibo Door Lock")
+
+    @property
+    def native_value(self) -> str | None:
+        state = self.coordinator.get_device_state(self._device_id)
+        if not state:
+            return None
+        value = state.get(PROPERTY_LOCK_OPEN_USER)
+        return value if isinstance(value, str) and value else None
+
+
 SensorFactory: TypeAlias = Callable[
     [OrviboLanCoordinator, str, Device],
     list[SensorEntity],
@@ -298,6 +358,8 @@ def _lock_sensors(
     return [
         OrviboLanDryBatterySensor(coordinator, device_id, device),
         OrviboLanLithiumBatterySensor(coordinator, device_id, device),
+        OrviboLanLockOpenDirectionSensor(coordinator, device_id, device),
+        OrviboLanLockOpenUserSensor(coordinator, device_id, device),
     ]
 
 

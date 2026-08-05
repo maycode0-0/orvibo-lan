@@ -4,6 +4,8 @@ from custom_components.orvibo_lan.device_profiles import (
     PROPERTY_BATTERY_POWER,
     PROPERTY_DOOR_STATUS,
     light_color_mode,
+    lock_open_direction,
+    lock_open_user,
     normalize_readtable_devices,
     platforms_for_device,
     property_percentage,
@@ -106,6 +108,26 @@ def test_property_helpers_accept_scalar_and_nested_shapes():
         )
         is None
     )
+
+
+def test_lock_event_helpers_normalize_direction_and_user_aliases():
+    properties = {
+        "doorOpenType": {"value": "outside"},
+        "doorOpenUserName": {"name": "张三"},
+    }
+
+    assert lock_open_direction(properties) == "outside"
+    assert lock_open_user(properties) == "张三"
+    assert lock_open_direction({"open_direction": "室内开门"}) == "inside"
+    assert lock_open_user({"unlock_user_id": 7}) == "7"
+    assert lock_open_user({"open_user_name": "", "open_user_id": 8}) == "8"
+
+
+def test_lock_event_helpers_reject_unrelated_or_unsafe_user_values():
+    assert lock_open_user({"userName": "cloud-account"}) is None
+    assert lock_open_user({"openUserName": "Alice\nAdmin"}) is None
+    assert lock_open_user({"openUserName": "x" * 129}) is None
+    assert lock_open_direction({"openType": "fingerprint"}) is None
 
 
 def test_status_only_property_device_is_retained_without_becoming_a_light():

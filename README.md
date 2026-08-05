@@ -12,7 +12,7 @@ Orvibo LAN 是一个 Home Assistant 自定义集成。它通过 Orvibo 云端获
 - 通过 TCP 8088 完成 Hello、Login、控制、心跳和状态接收。
 - 使用单一 TCP 读取循环按序列号路由响应，避免控制回复与状态推送相互抢读。
 - 接收 `cmd=42` 局域网状态推送，并用云端快照补充属性型只读设备。
-- 使用云端 TCP 10002 的双向 TLS 长连接接收 WiFi 门锁 `cmd=42` 属性状态，并在 Home Assistant 中实时更新。
+- 使用云端 TCP 10002 的双向 TLS 长连接接收 WiFi 门锁 `cmd=42` 属性状态，并在 Home Assistant 中实时更新门状态、最近开门方向和最近开门用户。
 - 将 App 房间映射到 Home Assistant 区域。
 - 提供 `orvibo_lan.refresh_devices` 服务手动刷新设备拓扑。
 
