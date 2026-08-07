@@ -17,6 +17,7 @@ from custom_components.orvibo_lan.lib import cloud_push
 from custom_components.orvibo_lan.lib.cloud_push import (
     CloudPushClient,
     CloudPushError,
+    lock_event_fp_trial_category,
     parse_lock_event,
 )
 from custom_components.orvibo_lan.lib.packet import ID_UNSET
@@ -154,6 +155,30 @@ async def test_dynamic_packet_round_trip() -> None:
     assert decoded["properties"] == {"door_status": "open"}
 
 
+@pytest.mark.parametrize(
+    ("properties", "expected"),
+    [
+        ({}, "missing"),
+        ({"fp_trial": None}, "empty"),
+        ({"fp_trial": ""}, "empty"),
+        ({"fp_trial": "0"}, "zero"),
+        ({"fp_trial": 0}, "zero"),
+        ({"fp_trial": "17"}, "numeric"),
+        ({"fp_trial": "fingerprint"}, "fingerprint"),
+        ({"fp_trial": "密码开门"}, "password"),
+        ({"fp_trial": "private-fp-value"}, "other"),
+    ],
+)
+def test_lock_event_fp_trial_category_never_returns_raw_value(
+    properties,
+    expected: str,
+) -> None:
+    category = lock_event_fp_trial_category({"properties": properties})
+
+    assert category == expected
+    assert "private-fp-value" not in category
+
+
 @pytest.mark.asyncio
 async def test_lock_event_schema_log_never_exposes_values(caplog) -> None:
     callback = AsyncMock()
@@ -169,6 +194,7 @@ async def test_lock_event_schema_log_never_exposes_values(caplog) -> None:
         "deviceId": "private-device-value",
         "properties": {
             "door_status": "open",
+            "fp_trial": "private-fp-value",
             "unlockRecord": {
                 "userName": "private-user-value",
                 "direction": "private-direction-value",
@@ -183,7 +209,9 @@ async def test_lock_event_schema_log_never_exposes_values(caplog) -> None:
     callback.assert_awaited_once()
     assert "properties.unlockRecord.userName:string" in caplog.text
     assert "properties.unlockRecord.credentials[]:string" in caplog.text
+    assert "fp_trial=other" in caplog.text
     assert "private-device-value" not in caplog.text
+    assert "private-fp-value" not in caplog.text
     assert "private-user-value" not in caplog.text
     assert "private-direction-value" not in caplog.text
     assert "private-token-value" not in caplog.text

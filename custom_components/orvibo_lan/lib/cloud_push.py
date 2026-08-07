@@ -50,6 +50,12 @@ _MAX_FRAME_SIZE: Final = 65535
 _MAX_DIAGNOSTIC_FIELDS: Final = 64
 _MAX_DIAGNOSTIC_DEPTH: Final = 4
 _MAX_DIAGNOSTIC_KEY_LENGTH: Final = 48
+_FP_TRIAL_FINGERPRINT_VALUES: Final = frozenset(
+    ("finger", "fingerprint", "fingerprintopen", "fp", "指纹", "指纹开门")
+)
+_FP_TRIAL_PASSWORD_VALUES: Final = frozenset(
+    ("passcode", "password", "passwordopen", "pwd", "密码", "密码开门")
+)
 _PUSH_SOFTWARE_VERSION: Final = "5.2.6.302"
 _PUSH_SOFTWARE_VERSION_CODE: Final = "50206302"
 _PUSH_DEBUG_INFO: Final = "Android_ZhiJia365_32_5.2.6.302"
@@ -145,6 +151,36 @@ def lock_event_field_shapes(packet: Mapping[str, Any]) -> tuple[str, ...]:
         if len(fields) >= _MAX_DIAGNOSTIC_FIELDS:
             break
     return tuple(fields)
+
+
+def lock_event_fp_trial_category(packet: Mapping[str, Any]) -> str:
+    """Classify fp_trial without retaining or exposing its raw value."""
+
+    properties = packet.get("properties")
+    if not isinstance(properties, Mapping) or "fp_trial" not in properties:
+        return "missing"
+    value = properties["fp_trial"]
+    if value is None:
+        return "empty"
+    if isinstance(value, bool):
+        return "other"
+    if isinstance(value, int):
+        return "zero" if value == 0 else "numeric"
+    if not isinstance(value, str):
+        return "other"
+    text = value.strip()
+    if not text:
+        return "empty"
+    token = "".join(character for character in text.lower() if character.isalnum())
+    if token in _FP_TRIAL_FINGERPRINT_VALUES:
+        return "fingerprint"
+    if token in _FP_TRIAL_PASSWORD_VALUES:
+        return "password"
+    try:
+        numeric = int(text)
+    except ValueError:
+        return "other"
+    return "zero" if numeric == 0 else "numeric"
 
 
 def _lock_property(key: str, value: object) -> object | None:
@@ -434,8 +470,9 @@ class CloudPushClient:
         if event is None:
             return
         _LOGGER.debug(
-            "ORVIBO cloud lock event schema (fields=%s)",
+            "ORVIBO cloud lock event schema (fields=%s, fp_trial=%s)",
             lock_event_field_shapes(packet),
+            lock_event_fp_trial_category(packet),
         )
         try:
             await self._callback(event)
